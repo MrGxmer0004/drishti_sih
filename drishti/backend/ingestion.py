@@ -116,6 +116,11 @@ class WardBuffer:
         self._seen_keys.add((reading.sensor_id, reading.timestamp))
         self._data[(reading.ward_id, reading.type)].append(reading)
 
+    def clear(self) -> None:
+        """Drop every buffered reading and dedup key. Used by the demo reset."""
+        self._data.clear()
+        self._seen_keys = _BoundedKeySet(self._seen_keys.capacity)
+
     def recent(self, ward_id: str, sensor_type: SensorType) -> List[NormalizedReading]:
         return list(self._data.get((ward_id, sensor_type), []))
 

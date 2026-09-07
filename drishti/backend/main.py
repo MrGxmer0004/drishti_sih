@@ -73,6 +73,7 @@ from model_service import model_service
 from meteo_store import meteo_store
 from ward_config import WARD_REGISTRY, get_ward_info, known_ward_ids
 from alert_dispatch import AlertDispatcher, build_alert, classify_tier
+from demo_scenarios import router as demo_router, wire as wire_demo
 
 # Single shared in-memory state for the prototype. Replace with a proper store
 # (and dependency-injected access) before this goes past demo stage.
@@ -118,6 +119,23 @@ def assess(ward_id: str) -> RiskAssessment:
     return assess_ward_risk_fused(
         ward_id, buffer, meteo_store=meteo_store, model_service=model_service
     )
+
+
+async def reassess_and_dispatch(ward_id: str) -> RiskAssessment:
+    """Re-run fusion for one ward and hand any resulting alert to the
+    dispatcher. Mirrors the inline logic in POST /ingest; used by the
+    demo-scenario router (demo_scenarios.py)."""
+    assessment = assess(ward_id)
+    alert = build_alert(assessment)
+    if alert is not None:
+        await dispatcher.submit(alert)
+    return assessment
+
+
+# Demo-scenario router — injects pre-built telemetry through real ingestion so
+# the dashboard reacts exactly as it would to live data. See demo_scenarios.py.
+wire_demo(buffer, meteo_store, reassess_and_dispatch)
+app.include_router(demo_router)
 
 
 # --- Ingestion ------------------------------------------------------------

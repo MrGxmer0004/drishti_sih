@@ -70,6 +70,10 @@ class MeteoFeatureStore:
     def get(self, ward_id: str) -> Optional[MeteoFeatures]:
         return self._by_ward.get(ward_id)
 
+    def clear(self) -> None:
+        """Drop every stored feature vector. Used by the demo reset."""
+        self._by_ward.clear()
+
     def wards_with_features(self) -> List[str]:
         return list(self._by_ward.keys())
 

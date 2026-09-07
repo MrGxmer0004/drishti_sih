@@ -40,9 +40,9 @@ from fastapi import APIRouter, HTTPException
 
 # These imports assume this file lives in drishti/backend/ alongside main.py.
 # Adjust if you place it elsewhere.
-from ingestion import WardBuffer
-from schemas import SensorReading, SensorType
-from ward_config import WARDS
+from ingestion import WardBuffer, ingest_batch
+from schemas import SensorType
+from ward_config import WARD_REGISTRY
 
 log = logging.getLogger("drishti.demo")
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -100,18 +100,20 @@ SCENARIOS: Dict[str, Dict] = {
 # ---------------------------------------------------------------------------
 
 def _mk_reading(ward: str, kind: SensorType, value: float, unit: str,
-                mins_ago: int, idx: int) -> SensorReading:
-    return SensorReading(
-        sensor_id=f"SNS_DEMO_{kind.value.upper()}_{ward}",
-        ward_id=ward,
-        type=kind,
-        value=value,
-        unit=unit,
-        timestamp=datetime.now(timezone.utc) - timedelta(minutes=mins_ago),
-    )
+                mins_ago: int, idx: int) -> dict:
+    return {
+        "sensor_id": f"SNS_DEMO_{kind.value.upper()}_{ward}",
+        "ward_id": ward,
+        "type": kind.value,
+        "value": value,
+        "unit": unit,
+        "timestamp": (
+            datetime.now(timezone.utc) - timedelta(minutes=mins_ago)
+        ).isoformat(),
+    }
 
 
-def _rainfall_storm_readings(ward: str, duration_min: int, n: int) -> List[SensorReading]:
+def _rainfall_storm_readings(ward: str, duration_min: int, n: int) -> List[dict]:
     """Escalating rainfall crossing a critical threshold. Ground-truth pattern:
     ~5 mm/step early, ~25-40 mm/step late. Soil already saturated. Water rising.
     """
@@ -128,7 +130,7 @@ def _rainfall_storm_readings(ward: str, duration_min: int, n: int) -> List[Senso
     return out
 
 
-def _geohazard_creep_readings(ward: str, duration_min: int, n: int) -> List[SensorReading]:
+def _geohazard_creep_readings(ward: str, duration_min: int, n: int) -> List[dict]:
     """Chamoli-style: rainfall near zero, slope tilt accelerating, sustained
     temperature rise. Ends past the risk_engine slope_tilt >= 5 deg and >= 3 C
     sustained temperature-rise thresholds for glacier-fed wards.
@@ -210,7 +212,7 @@ async def trigger_scenario(scenario_id: str):
         return {"ok": True, "scenario": scenario_id, "readings": 0, "meteo_posted": False}
 
     ward = scenario["ward_id"]
-    if ward not in {w.ward_id for w in WARDS.values()} and ward not in WARDS:
+    if ward not in WARD_REGISTRY:
         raise HTTPException(500, f"scenario references unknown ward '{ward}' -- check ward_config.py")
 
     # Build readings
@@ -223,13 +225,13 @@ async def trigger_scenario(scenario_id: str):
     else:
         raise HTTPException(400, f"scenario '{scenario_id}' has no injector defined")
 
-    # Push readings into the buffer
-    for r in readings:
-        _buffer.add(r)
+    # Push readings in through the real ingestion pipeline (validation, unit
+    # conversion, dedup, spike-flagging) -- the same path as POST /ingest.
+    ingest_batch(readings, _buffer)
 
     # Push meteo vector into the store, if any
     if meteo_vector is not None and _meteo_store is not None:
-        _meteo_store.upsert(ward, meteo_vector, datetime.now(timezone.utc), source="demo_scenario")
+        _meteo_store.put(ward, meteo_vector, datetime.now(timezone.utc), source="demo_scenario")
 
     # Re-assess and let the alert path decide what to fire
     assessment = await _reassess_and_dispatch(ward)
