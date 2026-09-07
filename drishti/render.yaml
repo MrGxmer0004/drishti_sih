@@ -4,10 +4,11 @@
 # "New +" -> "Blueprint" and point it at the repo. Render reads this file.
 #
 # The frontend is NOT here — it goes to Vercel. See docs/DEPLOYMENT.md.
-rootDir: drishti
+
 services:
   - type: web
     name: drishti-api
+    rootDir: drishti
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
