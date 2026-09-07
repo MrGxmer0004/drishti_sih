@@ -1,0 +1,19 @@
+# --- API service ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+websockets==14.1          # uvicorn's WS implementation, for /ws/alerts
+
+# --- ML inference (meteo-hydro branch) ---
+# xgboost pulls numpy and scipy. Together these are ~200 MB installed, which
+# is why this service needs a container and not a serverless function.
+# The API degrades to rule-engine-only if these are absent, so a slim build
+# can drop this block and set DRISHTI_ENABLE_MODEL=0.
+xgboost==2.1.3
+numpy==2.2.1
+
+# --- Optional ---
+# scikit-learn is ONLY needed for isotonic calibration (DRISHTI_CALIBRATE=1).
+# Left commented out because calibration is off by default: the deployed
+# thresholds were selected on raw scores and would need re-verifying first.
+# scikit-learn==1.6.0

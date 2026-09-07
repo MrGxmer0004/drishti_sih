@@ -1,0 +1,35 @@
+# Render blueprint for the DRISHTI API.
+#
+# Deploy: push this repo to GitHub, then in Render choose
+# "New +" -> "Blueprint" and point it at the repo. Render reads this file.
+#
+# The frontend is NOT here — it goes to Vercel. See docs/DEPLOYMENT.md.
+
+services:
+  - type: web
+    name: drishti-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Lock this down to your Vercel domain before the demo. "*" is fine
+      # while you are still wiring things up, but it means any site can call
+      # your veto endpoint, which has no auth on it yet.
+      - key: DRISHTI_CORS_ORIGINS
+        value: "*"
+      - key: DRISHTI_ENABLE_MODEL
+        value: "1"
+      # Calibration stays off: the 0.93 / 0.22 thresholds were selected on raw
+      # scores and would need the sweep re-run against calibrated ones.
+      - key: DRISHTI_CALIBRATE
+        value: "0"
+
+# FREE TIER WARNING, and it matters more here than for a normal API:
+# Render's free instances spin down after ~15 minutes of inactivity. A spun
+# down service is a stopped process, so every pending Tier 2 countdown dies
+# with it and the ward buffer empties. First request after idle also takes
+# ~50s to cold start. For a live demo, either keep the service warm by
+# pinging /health, or run the dashboard in demo mode (leave
+# NEXT_PUBLIC_API_BASE unset on Vercel) and show the live backend separately.

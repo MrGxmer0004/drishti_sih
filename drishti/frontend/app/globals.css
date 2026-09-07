@@ -1,0 +1,37 @@
+/* The dashboard component styles itself inline, so this file only sets the
+   page shell: full-height dark canvas, no default margins, and a font stack
+   that reads cleanly at the small sizes the operator UI uses. */
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: #0a0f16;
+  color: #e8eef6;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Operators work in a control room and may be keyboard-driven. Keep focus
+   visible rather than letting the dark palette swallow it. */
+:focus-visible {
+  outline: 2px solid #6fa8ff;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

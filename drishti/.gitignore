@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel/
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Data — NOT committed. The training parquets are multi-GB and live with the
+# ML member, not in git. ml/artifacts/ IS committed on purpose: the model json
+# is ~370 KB and the API needs it at runtime.
+*.parquet
+*.hgt
+data/
