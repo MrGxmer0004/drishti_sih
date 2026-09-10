@@ -10,23 +10,26 @@ Add these to the FastAPI app by importing the router and including it:
 
 Then hit these endpoints (or wire a button in the dashboard header):
 
-    POST /demo/scenarios              -> list available scenarios
+    GET  /demo/scenarios              -> list available scenarios
     POST /demo/trigger/{scenario_id}  -> inject one live
 
-Each scenario POSTs sensor readings AND (where relevant) a satellite feature
-vector, so BOTH branches of the risk engine get real input. The result is a
-demo where the dashboard reacts the same way it would to real telemetry --
-no faking the display, no manual state edits, just real ingestion.
+Each scenario POSTs ~18 readings per sensor over a 90-minute pre-roll AND
+(where relevant) a satellite feature vector, so BOTH branches of the risk
+engine get real input and the dashboard charts render a full curve the moment
+it fires -- no faking the display, no manual state edits, just real ingestion.
 
 Scenarios shipped:
-  rainfall_storm   -- Himachal-2023-style: rising rainfall + saturated soil +
-                       rising water level. Trips the rainfall model into
-                       WARNING territory on the rainfall branch.
-  geohazard_creep  -- Chamoli-style precursor: near-zero rainfall + slope
-                       tilt escalating + sustained temperature rise on a
-                       glacier-fed ward. Exercises the rule-based geohazard
-                       path (rainfall model correctly stays quiet).
-  reset            -- Clear everything (for a clean second demo run).
+  rainfall_storm         -- rising rainfall + saturating soil + rising river.
+                            Both branches elevate; Critical via soil
+                            amplification, lead time trend-projected.
+  geohazard_creep        -- Chamoli-style: near-zero rainfall, slope tilt
+                            accelerating past the critical angle, sustained
+                            melt-temperature rise on a glacier-fed ward. The
+                            rainfall model correctly stays at NONE.
+  multi_ward_escalation  -- Sonprayag -> Warning and Rudraprayag Town ->
+                            Critical at the same time, so the map and the
+                            alert list populate with two tiers at once.
+  reset                  -- Clear everything (for a clean second demo run).
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from fastapi import APIRouter, HTTPException
 # These imports assume this file lives in drishti/backend/ alongside main.py.
 # Adjust if you place it elsewhere.
 from ingestion import WardBuffer, ingest_batch
+from sample_meteo_vectors import WATCH_VECTOR
 from schemas import SensorType
 from ward_config import WARD_REGISTRY
 
@@ -49,20 +53,21 @@ router = APIRouter(prefix="/demo", tags=["demo"])
 
 
 # ---------------------------------------------------------------------------
-# Wiring: these two module-level references get set from main.py at startup.
-# See "how to wire" at the bottom of this file.
+# Wiring: these module-level references get set from main.py at import time.
 # ---------------------------------------------------------------------------
 _buffer: Optional[WardBuffer] = None
 _meteo_store = None            # main.py's meteo_store
 _reassess_and_dispatch = None  # main.py's helper that re-assesses + fires alerts
+_reset_alerts = None           # main.py's dispatcher.clear_demo_state (optional)
 
 
-def wire(buffer, meteo_store, reassess_and_dispatch):
+def wire(buffer, meteo_store, reassess_and_dispatch, reset_alerts=None):
     """Called once from main.py's startup to hand us the shared state."""
-    global _buffer, _meteo_store, _reassess_and_dispatch
+    global _buffer, _meteo_store, _reassess_and_dispatch, _reset_alerts
     _buffer = buffer
     _meteo_store = meteo_store
     _reassess_and_dispatch = reassess_and_dispatch
+    _reset_alerts = reset_alerts
 
 
 # ---------------------------------------------------------------------------
@@ -72,35 +77,47 @@ def wire(buffer, meteo_store, reassess_and_dispatch):
 SCENARIOS: Dict[str, Dict] = {
     "rainfall_storm": {
         "label": "Rainfall storm (Rudraprayag Town)",
-        "description": "Rising rainfall + saturated soil + rising water level. "
-                       "Trips the rainfall ML branch into WARNING territory.",
-        "ward_id": "WD_1023",
-        "duration_minutes": 90,
-        "steps": 6,      # readings per sensor over the duration
+        "description": "Rising rainfall + saturating soil + rising river. Both "
+                       "branches light up; fires as a Tier 2 veto with a "
+                       "trend-projected lead time.",
+        "wards": ["WD_1023"],
     },
     "geohazard_creep": {
         "label": "Geohazard precursor (Gaurikund, glacier-fed)",
-        "description": "Near-zero rainfall + slope tilt accelerating + sustained "
-                       "temperature rise. Exercises the rule-based geohazard "
-                       "path; rainfall model correctly stays quiet.",
-        "ward_id": "WD_1044",
-        "duration_minutes": 60,
-        "steps": 4,
+        "description": "Near-zero rainfall, slope tilt accelerating past the "
+                       "critical angle, sustained melt-temperature rise. The "
+                       "rainfall model correctly stays at NONE — the ground "
+                       "geohazard branch alone drives it Critical.",
+        "wards": ["WD_1044"],
+    },
+    "multi_ward_escalation": {
+        "label": "Two wards escalating (Warning + Critical)",
+        "description": "Sonprayag ramps to Warning while Rudraprayag Town goes "
+                       "Critical — the map, both risk tiers and the alert list "
+                       "populate at once.",
+        "wards": ["WD_2011", "WD_1023"],
     },
     "reset": {
         "label": "Reset (clear all injected data)",
         "description": "Wipes the ward buffer and meteo store so a fresh demo "
                        "starts from Normal.",
+        "wards": [],
     },
 }
 
+# Readings PER SENSOR across the pre-roll window. Dense enough that the moment a
+# scenario fires, GET /wards/{id}/history/{type} returns a full smooth curve and
+# risk_engine has >= 3 fresh points in every driver window to fit a trend.
+_STEPS = 18
+_DURATION_MIN = 90
+
 
 # ---------------------------------------------------------------------------
-# Reading builders (per scenario)
+# Reading builders
 # ---------------------------------------------------------------------------
 
 def _mk_reading(ward: str, kind: SensorType, value: float, unit: str,
-                mins_ago: int, idx: int) -> dict:
+                mins_ago: float, idx: int) -> dict:
     return {
         "sensor_id": f"SNS_DEMO_{kind.value.upper()}_{ward}",
         "ward_id": ward,
@@ -113,72 +130,90 @@ def _mk_reading(ward: str, kind: SensorType, value: float, unit: str,
     }
 
 
-def _rainfall_storm_readings(ward: str, duration_min: int, n: int) -> List[dict]:
-    """Escalating rainfall crossing a critical threshold. Ground-truth pattern:
-    ~5 mm/step early, ~25-40 mm/step late. Soil already saturated. Water rising.
-    """
-    out: List[SensorReading] = []
-    step = duration_min // (n - 1)
-    for i in range(n):
-        mins_ago = duration_min - i * step
-        rain = 5 + i * 6              # 5, 11, 17, 23, 29, 35 mm/step
-        soil = 78 + i * 2.5           # 78% -> 90%
-        water = 1.0 + i * 0.28        # 1.0 -> 2.4 m
-        out.append(_mk_reading(ward, SensorType.RAINFALL,       rain,  "mm", mins_ago, i))
-        out.append(_mk_reading(ward, SensorType.SOIL_MOISTURE,  soil,  "%",  mins_ago, i))
-        out.append(_mk_reading(ward, SensorType.WATER_LEVEL,    water, "m",  mins_ago, i))
-    return out
+def _ramp(i: int, n: int, lo: float, hi: float, curve: float = 1.0) -> float:
+    """lo -> hi across steps 0..n-1. curve > 1 accelerates toward the end."""
+    if n <= 1:
+        return hi
+    return lo + (hi - lo) * (i / (n - 1)) ** curve
 
 
-def _geohazard_creep_readings(ward: str, duration_min: int, n: int) -> List[dict]:
-    """Chamoli-style: rainfall near zero, slope tilt accelerating, sustained
-    temperature rise. Ends past the risk_engine slope_tilt >= 5 deg and >= 3 C
-    sustained temperature-rise thresholds for glacier-fed wards.
-    """
-    out: List[SensorReading] = []
-    step = duration_min // (n - 1)
-    for i in range(n):
-        mins_ago = duration_min - i * step
-        rain = 0.2 + i * 0.1                        # essentially dry
-        # tilt: slow creep 1.5 -> 3.0 -> then jumps 6, 11 (past the 5/10 deg cuts)
-        tilt = [1.5, 3.0, 6.5, 11.5][i] if i < 4 else 12.0
-        temp = 4.0 + i * 1.4                        # +4 C rise over the window
-        out.append(_mk_reading(ward, SensorType.RAINFALL,     rain, "mm",  mins_ago, i))
-        out.append(_mk_reading(ward, SensorType.SLOPE_TILT,   tilt, "deg", mins_ago, i))
-        out.append(_mk_reading(ward, SensorType.TEMPERATURE,  temp, "C",   mins_ago, i))
-    return out
+def _series(ward: str, kind: SensorType, unit: str, lo: float, hi: float,
+            curve: float = 1.0, n: int = _STEPS,
+            duration_min: int = _DURATION_MIN) -> List[dict]:
+    """A single sensor's smooth pre-roll: `n` readings from `duration_min` ago
+    up to now, values ramping lo -> hi. Timestamps stay float-precise so no two
+    readings collide (which the dedup step would drop)."""
+    step = duration_min / (n - 1)
+    return [
+        _mk_reading(ward, kind, round(_ramp(i, n, lo, hi, curve), 3), unit,
+                    duration_min - i * step, i)
+        for i in range(n)
+    ]
+
+
+def _rainfall_storm_readings(ward: str, n: int = _STEPS) -> List[dict]:
+    """Rain accumulation climbs toward (but not past) the critical figure, soil
+    crosses the saturation line, the river rises. -> Critical via soil
+    amplification, with rainfall still short of its own critical so the lead
+    time is a real projection, not 'imminent'."""
+    return (
+        _series(ward, SensorType.RAINFALL,      "mm",  1.5, 10.5, curve=1.5, n=n)
+        + _series(ward, SensorType.SOIL_MOISTURE, "%",  70.0, 88.0, curve=1.2, n=n)
+        + _series(ward, SensorType.WATER_LEVEL,  "m",   0.80, 1.85, curve=2.2, n=n)
+    )
+
+
+def _geohazard_creep_readings(ward: str, n: int = _STEPS) -> List[dict]:
+    """Chamoli-style: essentially dry, slope tilt accelerating past the 10 deg
+    critical cut, melt temperature rising ~5 C over the window."""
+    return (
+        _series(ward, SensorType.RAINFALL,     "mm",  0.1, 0.7,  curve=1.0, n=n)
+        + _series(ward, SensorType.SLOPE_TILT,   "deg", 1.0, 12.0, curve=2.6, n=n)
+        + _series(ward, SensorType.TEMPERATURE,  "C",   3.0, 8.5,  curve=1.0, n=n)
+    )
+
+
+def _warning_ward_readings(ward: str, n: int = _STEPS) -> List[dict]:
+    """Moderate storm: rainfall accumulation and river rise both reach WARNING
+    but soil stays below the saturation line, so it does not amplify to
+    Critical."""
+    return (
+        _series(ward, SensorType.RAINFALL,      "mm",  1.0, 10.0, curve=1.3, n=n)
+        + _series(ward, SensorType.SOIL_MOISTURE, "%",  62.0, 74.0, curve=1.0, n=n)
+        + _series(ward, SensorType.WATER_LEVEL,  "m",   0.70, 1.80, curve=2.5, n=n)
+    )
 
 
 def _rainfall_storm_meteo_vector() -> Dict[str, float]:
-    """The 34-feature vector for the rainfall-storm scenario.
+    """Satellite/reanalysis vector for the rainfall-storm ward.
 
-    NOTE: these values are hand-calibrated to score in the WARNING band of the
-    trained model. They are NOT drawn from a specific historical event -- if
-    you want that, use the parquet replay script (replay_historical.py) instead.
+    Reuses sample_meteo_vectors.WATCH_VECTOR, which is reverse-engineered from
+    the deployed booster's own split thresholds and scores ~0.57 -> WATCH tier.
+    That makes the ML branch a corroborating WATCH alongside the ground
+    sensors, without being a full satellite WARNING. For a real historical
+    event use the parquet replay path instead.
     """
-    return {
-        # Terrain (Rudraprayag Town-ish)
-        "elevation_m": 620.0, "slope_deg": 18.4,
-        "aspect_sin": 0.71, "aspect_cos": -0.71, "terrain_ruggedness": 420.0,
-        "flood_prone_terrain": 1.0,
-        # Rainfall windows -- storm pattern
-        "rain_intensity_3h": 12.0, "rain_3h": 36.0, "rain_6h": 62.0,
-        "rain_12h": 95.0, "rain_24h": 128.0,
-        "rain_48h": 155.0, "rain_72h": 175.0,
-        "rain_5d": 190.0, "rain_7d": 210.0, "rain_14d": 245.0,
-        "max_intensity_24h": 14.0, "wet_fraction_7d": 0.65,
-        "rain_anomaly_24h": 113.0,   # 128 - climatological 15
-        # ERA5 weather
-        "temperature_2m_c": 18.0, "dewpoint_2m_c": 16.5,
-        "humidity_pct": 92.0, "pressure_hpa": 948.0,
-        "wind_speed_10m": 4.2, "wind_direction_10m": 195.0,
-        "soil_moisture_m3m3": 0.42, "era5_precip_3h_mm": 34.0,
-        # Hydrology
-        "flow_accumulation": 4.2e5, "twi": 8.9,
-        "dist_to_stream_m": 85.0, "nearest_stream_order": 5.0,
-        "nearest_stream_flow_order": 4.0,
-        "drainage_density_km_per_km2": 1.6, "dist_to_confluence_m": 1200.0,
-    }
+    return dict(WATCH_VECTOR)
+
+
+def _scenario_injections(scenario_id: str):
+    """[(ward_id, [reading dicts], meteo_vector | None), ...] for a scenario.
+
+    rainfall_storm stays ground-only (no vector) so it lands in Tier 2 with a
+    visible veto countdown and a trend-projected lead time. The "both branches
+    agree" case is carried by multi_ward_escalation's Critical ward.
+    """
+    if scenario_id == "rainfall_storm":
+        return [("WD_1023", _rainfall_storm_readings("WD_1023"), None)]
+    if scenario_id == "geohazard_creep":
+        # no meteo vector on purpose: the rainfall model must stay at NONE
+        return [("WD_1044", _geohazard_creep_readings("WD_1044"), None)]
+    if scenario_id == "multi_ward_escalation":
+        return [
+            ("WD_2011", _warning_ward_readings("WD_2011"), None),
+            ("WD_1023", _rainfall_storm_readings("WD_1023"), _rainfall_storm_meteo_vector()),
+        ]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -189,66 +224,64 @@ def _rainfall_storm_meteo_vector() -> Dict[str, float]:
 async def list_scenarios():
     """List available demo scenarios."""
     return [
-        {"id": sid, "label": s["label"], "description": s["description"]}
+        {"id": sid, "label": s["label"], "description": s["description"],
+         "wards": s.get("wards", [])}
         for sid, s in SCENARIOS.items()
     ]
 
 
 @router.post("/trigger/{scenario_id}")
 async def trigger_scenario(scenario_id: str):
-    """Inject a scenario's readings + (if applicable) satellite feature vector
-    into the running backend, then re-assess and dispatch."""
+    """Inject a scenario's readings + (where relevant) satellite feature vectors
+    into the running backend through the real ingestion pipeline, then re-assess
+    and dispatch each affected ward."""
     if _buffer is None or _reassess_and_dispatch is None:
         raise HTTPException(500, "demo router not wired -- call wire() from main.py startup")
 
-    scenario = SCENARIOS.get(scenario_id)
-    if scenario is None:
+    if SCENARIOS.get(scenario_id) is None:
         raise HTTPException(404, f"unknown scenario '{scenario_id}'")
 
     if scenario_id == "reset":
         _buffer.clear()
         if _meteo_store is not None:
             _meteo_store.clear()
-        return {"ok": True, "scenario": scenario_id, "readings": 0, "meteo_posted": False}
+        if _reset_alerts is not None:
+            await _reset_alerts()
+        return {"ok": True, "scenario": scenario_id, "wards": []}
 
-    ward = scenario["ward_id"]
-    if ward not in WARD_REGISTRY:
-        raise HTTPException(500, f"scenario references unknown ward '{ward}' -- check ward_config.py")
-
-    # Build readings
-    if scenario_id == "rainfall_storm":
-        readings = _rainfall_storm_readings(ward, scenario["duration_minutes"], scenario["steps"])
-        meteo_vector = _rainfall_storm_meteo_vector()
-    elif scenario_id == "geohazard_creep":
-        readings = _geohazard_creep_readings(ward, scenario["duration_minutes"], scenario["steps"])
-        meteo_vector = None      # geohazard scenario deliberately keeps rainfall model quiet
-    else:
+    injections = _scenario_injections(scenario_id)
+    if not injections:
         raise HTTPException(400, f"scenario '{scenario_id}' has no injector defined")
 
-    # Push readings in through the real ingestion pipeline (validation, unit
-    # conversion, dedup, spike-flagging) -- the same path as POST /ingest.
-    ingest_batch(readings, _buffer)
+    results = []
+    for ward, readings, meteo_vector in injections:
+        if ward not in WARD_REGISTRY:
+            raise HTTPException(
+                500, f"scenario references unknown ward '{ward}' -- check ward_config.py"
+            )
+        # Same path as POST /ingest: validation, unit conversion, dedup, spikes.
+        ingest_batch(readings, _buffer)
+        if meteo_vector is not None and _meteo_store is not None:
+            _meteo_store.put(
+                ward, meteo_vector, datetime.now(timezone.utc), source="demo_scenario"
+            )
+        assessment = await _reassess_and_dispatch(ward)
+        log.info("scenario %s: ward=%s readings=%d meteo=%s risk=%s",
+                 scenario_id, ward, len(readings), meteo_vector is not None,
+                 getattr(assessment, "risk_level", "?"))
+        results.append({
+            "ward_id": ward,
+            "readings_injected": len(readings),
+            "meteo_vector_posted": meteo_vector is not None,
+            "risk_level": getattr(assessment, "risk_level", None),
+            "confidence": getattr(assessment, "confidence", None),
+            "estimated_lead_time_minutes": getattr(
+                assessment, "estimated_lead_time_minutes", None
+            ),
+            "impact_imminent": getattr(assessment, "impact_imminent", None),
+        })
 
-    # Push meteo vector into the store, if any
-    if meteo_vector is not None and _meteo_store is not None:
-        _meteo_store.put(ward, meteo_vector, datetime.now(timezone.utc), source="demo_scenario")
-
-    # Re-assess and let the alert path decide what to fire
-    assessment = await _reassess_and_dispatch(ward)
-
-    log.info("scenario %s triggered: ward=%s readings=%d meteo=%s risk=%s",
-             scenario_id, ward, len(readings), meteo_vector is not None,
-             getattr(assessment, "risk_level", "?"))
-
-    return {
-        "ok": True,
-        "scenario": scenario_id,
-        "ward_id": ward,
-        "readings_injected": len(readings),
-        "meteo_vector_posted": meteo_vector is not None,
-        "assessed_risk_level": getattr(assessment, "risk_level", None),
-        "assessed_confidence": getattr(assessment, "confidence", None),
-    }
+    return {"ok": True, "scenario": scenario_id, "wards": results}
 
 
 # ---------------------------------------------------------------------------

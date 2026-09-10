@@ -621,6 +621,29 @@ class AlertDispatcher:
             detail="alert dismissed; nothing was sent",
         )
 
+    # -- demo support --
+
+    async def clear_demo_state(self) -> None:
+        """Cancel every pending countdown and wipe the alert registry + history.
+
+        Used only by POST /demo/trigger/reset so a fresh demo run starts with a
+        clean alert list. Live WebSocket subscribers are kept and pushed a
+        `demo.reset` event so the dashboard refetches.
+        """
+        async with self._lock:
+            for task in self._timers.values():
+                task.cancel()
+            self._timers.clear()
+            self._pending.clear()
+            self._by_id.clear()
+            self._history.clear()
+            self._last_dispatch.clear()
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait({"event": "demo.reset", "alerts": []})
+            except asyncio.QueueFull:
+                pass
+
     # -- reads --
 
     def get(self, alert_id: str) -> Optional[Alert]:

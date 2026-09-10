@@ -139,7 +139,7 @@ async def reassess_and_dispatch(ward_id: str) -> RiskAssessment:
 
 # Demo-scenario router — injects pre-built telemetry through real ingestion so
 # the dashboard reacts exactly as it would to live data. See demo_scenarios.py.
-wire_demo(buffer, meteo_store, reassess_and_dispatch)
+wire_demo(buffer, meteo_store, reassess_and_dispatch, dispatcher.clear_demo_state)
 app.include_router(demo_router)
 
 
