@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import {
   LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, ReferenceLine,
 } from "recharts";
+import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
+import { geoMercator } from "d3-geo";
 
 /* ============================================================================
    DRISHTI — Authority Operations Dashboard
@@ -73,12 +75,12 @@ const OPERATOR = OPERATOR_ID;
 function makeMockBackend() {
   const now = () => new Date();
   const wards = [
-    { ward_id: "WD_1023", name: "Rudraprayag Town",  lat: 62, lon: 34, glacier: false, evac: "Govt. Inter College", risk: "critical", confidence: 0.91, lead: 18 },
-    { ward_id: "WD_1044", name: "Gaurikund",         lat: 30, lon: 55, glacier: true,  evac: "Community Hall, Upper Ridge", risk: "warning", confidence: 0.68, lead: 22 },
-    { ward_id: "WD_2011", name: "Sonprayag",         lat: 48, lon: 46, glacier: true,  evac: "Helipad Shelter", risk: "watch", confidence: 0.74, lead: 30 },
-    { ward_id: "WD_2087", name: "Ukhimath",          lat: 40, lon: 68, glacier: false, evac: "Block Office", risk: "normal", confidence: 0.88, lead: 35 },
-    { ward_id: "WD_3009", name: "Chandrapuri",       lat: 72, lon: 60, glacier: false, evac: "Riverside School (high block)", risk: "normal", confidence: 0.83, lead: 28 },
-    { ward_id: "WD_3044", name: "Tilwara",           lat: 68, lon: 24, glacier: false, evac: "Mandi Ground", risk: "watch", confidence: 0.61, lead: 26 },
+    { ward_id: "WD_1023", name: "Rudraprayag Town",  latitude: 30.2844, longitude: 78.9811, glacier: false, evac: "Govt. Inter College", risk: "critical", confidence: 0.91, lead: 18 },
+    { ward_id: "WD_1044", name: "Gaurikund",         latitude: 30.6606, longitude: 79.0209, glacier: true,  evac: "Community Hall, Upper Ridge", risk: "warning", confidence: 0.68, lead: 22 },
+    { ward_id: "WD_2011", name: "Sonprayag",         latitude: 30.6280, longitude: 79.0207, glacier: true,  evac: "Helipad Shelter", risk: "watch", confidence: 0.74, lead: 30 },
+    { ward_id: "WD_2087", name: "Ukhimath",          latitude: 30.5147, longitude: 79.0900, glacier: false, evac: "Block Office", risk: "normal", confidence: 0.88, lead: 35 },
+    { ward_id: "WD_3009", name: "Chandrapuri",       latitude: 30.3670, longitude: 78.9880, glacier: false, evac: "Riverside School (high block)", risk: "normal", confidence: 0.83, lead: 28 },
+    { ward_id: "WD_3044", name: "Tilwara",           latitude: 30.2430, longitude: 78.9560, glacier: false, evac: "Mandi Ground", risk: "watch", confidence: 0.61, lead: 26 },
   ];
 
   // history series per ward/type
@@ -270,22 +272,28 @@ function useDrishtiData() {
     }
   }, []);
 
+  // ward risk + sensor health — refetched on every WS event so the map and
+  // status strip track live escalations, not just the initial load.
+  const refreshWards = useCallback(async () => {
+    if (USE_LIVE) {
+      const [ws, sh] = await Promise.all([
+        fetch(`${API_BASE}/wards`).then((r) => r.ok ? r.json() : []).catch(() => []),
+        fetch(`${API_BASE}/dashboard/sensor-health`).then((r) => r.ok ? r.json() : []).catch(() => []),
+      ]);
+      if (Array.isArray(ws) && ws.length) setWards(ws);
+      if (Array.isArray(sh)) setSensors(sh);
+    } else {
+      setWards(await mockRef.current.getWards());
+      setSensors(await mockRef.current.getSensors());
+    }
+  }, []);
+
   useEffect(() => {
-    let alive = true;
     (async () => {
-      if (USE_LIVE) {
-        const ws = await fetch(`${API_BASE}/wards`).then((r) => r.ok ? r.json() : []).catch(() => []);
-        if (alive) setWards(ws);
-        const sh = await fetch(`${API_BASE}/dashboard/sensor-health`).then((r) => r.ok ? r.json() : []).catch(() => []);
-        if (alive) setSensors(sh);
-      } else {
-        setWards(await mockRef.current.getWards());
-        setSensors(await mockRef.current.getSensors());
-      }
+      await refreshWards();
       await refreshAlerts();
     })();
-    return () => { alive = false; };
-  }, [refreshAlerts]);
+  }, [refreshWards, refreshAlerts]);
 
   // live event stream
   useEffect(() => {
@@ -293,7 +301,7 @@ function useDrishtiData() {
       const ws = new WebSocket(`${WS_BASE}/ws/alerts`);
       ws.onopen = () => setConnected(true);
       ws.onclose = () => setConnected(false);
-      ws.onmessage = () => refreshAlerts();
+      ws.onmessage = () => { refreshAlerts(); refreshWards(); };
       return () => ws.close();
     } else {
       setConnected(true);
@@ -302,7 +310,7 @@ function useDrishtiData() {
       const iv = setInterval(rerender, 500);
       return () => { unsub(); clearInterval(iv); };
     }
-  }, [refreshAlerts, rerender]);
+  }, [refreshAlerts, refreshWards, rerender]);
 
   const api = useMemo(() => ({
     getWardRisk: (id) => USE_LIVE ? fetch(`${API_BASE}/wards/${id}/risk`).then((r) => r.json()) : mockRef.current.getWardRisk(id),
@@ -367,38 +375,116 @@ function Sparkline({ data, color }) {
   );
 }
 
-/* ---------- Ward map (schematic, not a geo-map — clearly a situational grid) - */
+/* ---------- Ward map — real geography ---------------------------------------
+   react-simple-maps over a locally-bundled India states TopoJSON
+   (public/geo/india-states.topo.json — DataMeet / Census-2011 boundaries,
+   simplified to state level). Served same-origin from /public, so the map
+   still draws with no internet. Markers project from real ward lat/lon out
+   of /wards; risk tier, critical pulse, click-to-select and the legend are
+   carried over unchanged from the previous schematic map.
+   ------------------------------------------------------------------------- */
+const GEO_URL = "/geo/india-states.topo.json";
+const MAP_W = 820;
+const MAP_H = 520;
+
+// operational default: the six-ward cluster in Rudraprayag district, padded
+// so markers never sit on the frame edge.
+const CLUSTER_BOX = { lonMin: 78.72, lonMax: 79.30, latMin: 30.09, latMax: 30.83 };
+// state-context view: the Uttarakhand bounding box.
+const UK_BOX = { lonMin: 77.45, lonMax: 81.15, latMin: 28.60, latMax: 31.55 };
+
+const UK_NAMES = ["Uttarakhand", "Uttaranchal"];
+const isUttarakhand = (props = {}) =>
+  UK_NAMES.includes(props.st_nm || props.NAME_1 || props.name || "");
+
+const boxPolygon = (b) => ({
+  type: "Polygon",
+  coordinates: [[
+    [b.lonMin, b.latMin], [b.lonMax, b.latMin],
+    [b.lonMax, b.latMax], [b.lonMin, b.latMax], [b.lonMin, b.latMin],
+  ]],
+});
+
 function WardMap({ wards, selected, onSelect }) {
+  // react-simple-maps pulls in d3-zoom / measures the DOM; only mount it
+  // client-side to avoid an App-Router hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  const [view, setView] = useState("district"); // "district" | "state"
+  useEffect(() => setMounted(true), []);
+
+  const projection = useMemo(() => {
+    const box = view === "state" ? UK_BOX : CLUSTER_BOX;
+    return geoMercator().fitExtent(
+      [[26, 26], [MAP_W - 26, MAP_H - 26]],
+      boxPolygon(box),
+    );
+  }, [view]);
+
+  const markers = useMemo(() => wards
+    .map((w) => ({ ...w, _lon: Number(w.longitude), _lat: Number(w.latitude) }))
+    .filter((w) => Number.isFinite(w._lon) && Number.isFinite(w._lat)
+      && Math.abs(w._lat) <= 90 && Math.abs(w._lon) <= 180),
+    [wards]);
+
+  const frame = {
+    position: "relative", width: "100%", aspectRatio: `${MAP_W} / ${MAP_H}`,
+    minHeight: 340, borderRadius: 10, overflow: "hidden",
+    background: "radial-gradient(120% 120% at 30% 10%, #17202c 0%, #10161f 60%, #0c1119 100%)",
+    border: "1px solid #1e2836",
+  };
+
+  if (!mounted) {
+    return <div style={{ ...frame, display: "grid", placeItems: "center", color: "#6d7d92", fontSize: 12 }}>Loading map…</div>;
+  }
+
   return (
-    <div style={{ position: "relative", height: "100%", minHeight: 340, borderRadius: 10, overflow: "hidden",
-      background: "radial-gradient(120% 120% at 30% 10%, #17202c 0%, #10161f 60%, #0c1119 100%)",
-      border: "1px solid #1e2836" }}>
-      {/* faint contour lines to evoke terrain */}
-      <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, opacity: 0.5 }}>
-        {[...Array(7)].map((_, i) => (
-          <path key={i} d={`M 0 ${40 + i * 52} Q 200 ${10 + i * 52}, 420 ${55 + i * 52} T 900 ${30 + i * 52}`}
-            fill="none" stroke="#1c2735" strokeWidth="1" />
-        ))}
-      </svg>
-      {wards.map((w) => {
-        const r = RISK[w.risk];
-        const isSel = selected === w.ward_id;
-        const pulsing = w.risk === "critical";
-        return (
-          <button key={w.ward_id} onClick={() => onSelect(w.ward_id)}
-            style={{ position: "absolute", left: `${w.lon}%`, top: `${w.lat}%`, transform: "translate(-50%,-50%)",
-              background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-            <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              {pulsing && <span style={{ position: "absolute", top: -3, width: 26, height: 26, borderRadius: 999, background: r.dot, opacity: 0.25, animation: "drpulse 1.8s ease-out infinite" }} />}
-              <span style={{ width: 15, height: 15, borderRadius: 999, background: r.dot,
-                boxShadow: isSel ? `0 0 0 4px ${r.ring}, 0 0 0 6px #ffffff22` : `0 0 0 3px ${r.bg}`,
-                border: "1.5px solid #0c1119" }} />
-              <span style={{ fontSize: 10.5, color: isSel ? "#e8eef6" : "#9fb0c4", fontWeight: isSel ? 700 : 500,
-                background: "#0e141dcc", padding: "1px 6px", borderRadius: 5, whiteSpace: "nowrap" }}>{w.name}</span>
-            </div>
-          </button>
-        );
-      })}
+    <div style={frame}>
+      <ComposableMap projection={projection} width={MAP_W} height={MAP_H}
+        style={{ width: "100%", height: "100%" }}>
+        <Geographies geography={GEO_URL}>
+          {({ geographies }) => geographies.map((geo) => {
+            const uk = isUttarakhand(geo.properties);
+            return (
+              <Geography key={geo.rsmKey} geography={geo}
+                fill={uk ? "#182634" : "#0e141d"}
+                stroke={uk ? "#3a4d63" : "#1b2634"}
+                strokeWidth={uk ? 1 : 0.5}
+                style={{ default: { outline: "none" }, hover: { outline: "none" }, pressed: { outline: "none" } }} />
+            );
+          })}
+        </Geographies>
+
+        {markers.map((w) => {
+          const r = RISK[w.risk] || RISK.normal;
+          const isSel = selected === w.ward_id;
+          const pulsing = w.risk === "critical";
+          return (
+            <Marker key={w.ward_id} coordinates={[w._lon, w._lat]}
+              onClick={() => onSelect(w.ward_id)} style={{ default: { cursor: "pointer" } }}>
+              {pulsing && (
+                <circle r={13} fill={r.dot} opacity={0.25}
+                  style={{ transformBox: "fill-box", transformOrigin: "center", animation: "drpulse 1.8s ease-out infinite" }} />
+              )}
+              {isSel && <circle r={11} fill="none" stroke={r.ring} strokeWidth={3} />}
+              {isSel && <circle r={14} fill="none" stroke="#ffffff22" strokeWidth={2} />}
+              <circle r={7} fill={r.dot} stroke="#0c1119" strokeWidth={1.5} />
+              <text textAnchor="middle" y={-14}
+                style={{ fontSize: 10.5, fontWeight: isSel ? 700 : 500, fill: isSel ? "#e8eef6" : "#9fb0c4",
+                  paintOrder: "stroke", stroke: "#0e141d", strokeWidth: 3, pointerEvents: "none" }}>
+                {w.name}
+              </text>
+            </Marker>
+          );
+        })}
+      </ComposableMap>
+
+      {/* district ⇄ state toggle — district stays the default view */}
+      <button onClick={() => setView((v) => (v === "state" ? "district" : "state"))}
+        style={{ position: "absolute", right: 12, top: 12, fontSize: 11, color: "#9fb0c4",
+          background: "#0d131bdd", border: "1px solid #26333f", borderRadius: 7, padding: "6px 10px", cursor: "pointer" }}>
+        {view === "state" ? "↩ Back to district" : "Zoom out to Uttarakhand"}
+      </button>
+
       {/* legend */}
       <div style={{ position: "absolute", left: 12, bottom: 12, display: "flex", gap: 12, background: "#0d131bdd",
         border: "1px solid #1e2836", borderRadius: 8, padding: "7px 11px" }}>
