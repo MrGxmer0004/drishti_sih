@@ -104,3 +104,22 @@ def known_ward_ids() -> List[str]:
     assessed — it just falls back to `_DEFAULT_WARD`, which is why the
     dashboard's ward list and the risk endpoint can legitimately disagree."""
     return list(WARD_REGISTRY.keys())
+
+
+# --- Expected-sensor registry -------------------------------------------
+# Which ground sensor types every ward is EXPECTED to report. The
+# sensor-health panel diffs live sensors against this so a node that was
+# destroyed mid-event — and has since rotated out of the rolling buffer —
+# shows up as Silent instead of silently disappearing from the list. This is
+# the Nepal failure mode (official gauges destroyed by the flood) the system
+# is meant to survive being blind to.
+_BASE_EXPECTED = ["rainfall", "soil_moisture", "water_level", "slope_tilt"]
+
+
+def expected_sensor_types(ward_id: str) -> List[str]:
+    """Sensor types this ward should have a live feed from. Glacier-fed wards
+    additionally expect a temperature feed (the melt signal FFGS misses)."""
+    types = list(_BASE_EXPECTED)
+    if get_ward_info(ward_id)["glacier_fed"]:
+        types.append("temperature")
+    return types

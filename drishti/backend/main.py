@@ -71,7 +71,12 @@ from risk_engine import RiskAssessment
 from fusion import assess_ward_risk_fused
 from model_service import model_service
 from meteo_store import meteo_store
-from ward_config import WARD_REGISTRY, get_ward_info, known_ward_ids
+from ward_config import (
+    WARD_REGISTRY,
+    expected_sensor_types,
+    get_ward_info,
+    known_ward_ids,
+)
 from alert_dispatch import AlertDispatcher, build_alert, classify_tier
 from demo_scenarios import router as demo_router, wire as wire_demo
 
@@ -307,21 +312,26 @@ def ward_history(ward_id: str, sensor_type: SensorType):
 
 @app.get("/dashboard/sensor-health")
 def sensor_health(ward_id: Optional[str] = None):
-    """Latest contact per sensor, for the sensor-health panel.
+    """Sensor-health panel: live sensors, plus expected sensors that are NOT
+    reporting at all.
 
-    IMPORTANT LIMITATION: this only sees sensors still inside WardBuffer's
-    rolling window. A node destroyed mid-event — the Nepal failure mode this
-    system is meant to survive — eventually vanishes from this list entirely
-    instead of showing as silent. Fixing that needs a registry of EXPECTED
-    sensors to diff against, which needs the real ward/sensor inventory.
+    Live sensors still inside WardBuffer's rolling window are listed with
+    `status` "reporting" or "silent" (seen, but not within
+    SENSOR_SILENT_AFTER_MINUTES). Expected sensor types (see
+    ward_config.expected_sensor_types) with no live sensor at all are appended
+    with `status` "missing" — so a node destroyed mid-event, once its last
+    reading rotates out of the buffer, shows as a gap rather than vanishing.
     """
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(minutes=config.SENSOR_SILENT_AFTER_MINUTES)
     out = []
+    covered: set[tuple[str, str]] = set()
     for sensor_id, reading in sorted(buffer.known_sensors(ward_id).items()):
         ts = reading.timestamp
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
+        reporting = ts >= cutoff
+        covered.add((reading.ward_id, reading.type.value))
         out.append(
             {
                 "sensor_id": sensor_id,
@@ -329,11 +339,33 @@ def sensor_health(ward_id: Optional[str] = None):
                 "ward_name": get_ward_info(reading.ward_id)["name"],
                 "type": reading.type.value,
                 "last_seen": ts.isoformat(),
-                "reporting": ts >= cutoff,
+                "reporting": reporting,
+                "status": "reporting" if reporting else "silent",
+                "expected": reading.type.value in expected_sensor_types(reading.ward_id),
                 "last_value": reading.value,
                 "unit": reading.unit,
             }
         )
+
+    scope = [ward_id] if ward_id is not None else known_ward_ids()
+    for w_id in scope:
+        for s_type in expected_sensor_types(w_id):
+            if (w_id, s_type) in covered:
+                continue
+            out.append(
+                {
+                    "sensor_id": f"{w_id}:{s_type}",
+                    "ward_id": w_id,
+                    "ward_name": get_ward_info(w_id)["name"],
+                    "type": s_type,
+                    "last_seen": None,
+                    "reporting": False,
+                    "status": "missing",
+                    "expected": True,
+                    "last_value": None,
+                    "unit": None,
+                }
+            )
     return out
 
 
