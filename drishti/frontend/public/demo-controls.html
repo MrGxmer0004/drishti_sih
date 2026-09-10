@@ -8,52 +8,71 @@
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 24px;
+    margin: 0; padding: 40px 24px;
     background: #0a0e14; color: #c3cfdd;
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   .wrap { max-width: 720px; margin: 0 auto; }
   .panel {
-    border: 2px dashed #f0a35c; border-radius: 12px;
-    background: #14100a; padding: 20px;
+    background: #121a26;
+    border: 1px solid #24334a;
+    border-left: 3px solid #f0a35c;
+    border-radius: 14px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 22px 54px -26px rgba(0,0,0,.7);
+    padding: 24px;
   }
-  h1 { font-size: 16px; margin: 0 0 2px; color: #f0a35c; letter-spacing: .3px; }
-  .sub { font-size: 12px; color: #b79a86; margin-bottom: 16px; }
-  label { display: block; font-size: 11px; color: #9fb0c4; margin: 12px 0 4px; }
+  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  h1 { font-size: 15px; margin: 0; color: #eef3f9; letter-spacing: .4px; font-weight: 700; }
+  .pill {
+    font-size: 10px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase;
+    color: #f0a35c; background: #241608; border: 1px solid #8a5320;
+    border-radius: 999px; padding: 3px 9px;
+  }
+  .sub { font-size: 12px; color: #8496ab; margin: 10px 0 18px; }
+  label {
+    display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
+    text-transform: uppercase; color: #6a7c92; margin: 14px 0 6px;
+  }
   input[type=text] {
-    width: 100%; background: #0e141d; border: 1px solid #33465b; color: #e8eef6;
-    border-radius: 7px; padding: 8px 10px; font: inherit;
+    width: 100%; background: #0e151f; border: 1px solid #24334a; color: #e8eef6;
+    border-radius: 9px; padding: 9px 11px; font: inherit; outline: none;
   }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  input[type=text]:focus { border-color: #3a5f86; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   button {
     flex: 1 1 auto; min-width: 150px;
-    background: #1c2836; color: #cdd9e6; border: 1px solid #33465b;
-    border-radius: 8px; padding: 11px 14px; font: 600 13px inherit; cursor: pointer;
+    background: #0e151f; color: #cdd9e6; border: 1px solid #26333f;
+    border-radius: 9px; padding: 11px 14px; font: 600 13px inherit; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: background .12s, border-color .12s;
   }
-  button:hover { background: #24344a; }
-  button.reset { border-color: #5c4f1c; color: #ecdfa6; }
+  button:hover { background: #17212e; border-color: #33465b; }
+  button.reset { border-color: #5c4f1c; color: #ecdfa6; background: #1b1708; }
+  button.reset:hover { background: #241f0c; }
   button.danger { border-color: #7d2b2b; color: #ff8a7a; }
   button:disabled { opacity: .5; cursor: wait; }
   .out {
-    margin-top: 16px; background: #0d131b; border: 1px solid #1e2836;
-    border-radius: 8px; padding: 12px; font: 12px/1.45 ui-monospace, monospace;
+    margin-top: 18px; background: #0b1119; border: 1px solid #1f2c3d;
+    border-radius: 10px; padding: 13px; font: 12px/1.45 ui-monospace, monospace;
     white-space: pre-wrap; word-break: break-word; min-height: 40px; color: #9fb0c4;
   }
   .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
   .dot { width: 8px; height: 8px; border-radius: 999px; background: #6d7d92; }
   .dot.ok { background: #6fd39b; } .dot.bad { background: #ff5647; } .dot.wait { background: #f0a35c; }
   a { color: #6fb4f0; }
-  footer { margin-top: 14px; font-size: 11px; color: #6d7d92; }
+  footer { margin-top: 16px; padding-top: 14px; border-top: 1px solid #1c2635; font-size: 11px; color: #6a7c92; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="panel">
-    <h1>⚠ DRISHTI DEMO CONTROLS</h1>
+    <div class="head">
+      <h1>DRISHTI · Demo controls</h1>
+      <span class="pill">Rehearsed triggers · not live sensors</span>
+    </div>
     <div class="sub">
-      Rehearsed scenario triggers for the judge demo — <b>not</b> a claim of live
-      sensors. Each button POSTs pre-built telemetry through the real ingestion
-      pipeline; the dashboard then reacts exactly as it would to real data.
+      Each button POSTs pre-built telemetry through the real ingestion pipeline;
+      the dashboard then reacts exactly as it would to real sensor data. Nothing
+      about the dashboard's response is faked.
     </div>
 
     <label for="api">Backend base URL</label>

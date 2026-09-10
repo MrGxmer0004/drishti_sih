@@ -67,6 +67,29 @@ const SENSOR_TYPES = ["rainfall", "soil_moisture", "water_level", "slope_tilt", 
 const SENSOR_UNIT = { rainfall: "mm", soil_moisture: "%", water_level: "m", slope_tilt: "°", temperature: "°C" };
 const OPERATOR = OPERATOR_ID;
 
+/* ---- shared surface + typography tokens (visual polish) --------------------
+   One raised-card treatment and one inset-tile treatment so the layout reads
+   in layers instead of one flat plane. Palette identity is unchanged. */
+const CARD = {
+  background: "#121a26",
+  border: "1px solid #24334a",
+  borderRadius: 12,
+  boxShadow: "0 1px 2px rgba(0,0,0,.35), 0 12px 28px -18px rgba(0,0,0,.65)",
+};
+const TILE = {
+  background: "#0e151f",
+  border: "1px solid #1f2c3d",
+  borderRadius: 10,
+};
+// small uppercase section label — used to separate content groups
+const KICKER = {
+  fontSize: 10.5, fontWeight: 700, letterSpacing: 0.7, textTransform: "uppercase", color: "#6a7c92",
+};
+// primary metric number — deliberately much heavier than its label
+const STATNUM = {
+  fontSize: 25, fontWeight: 800, color: "#f4f8fc", lineHeight: 1.05, fontVariantNumeric: "tabular-nums",
+};
+
 /* ============================================================================
    MOCK BACKEND  — a faithful stand-in for the FastAPI service.
    Emits the same shapes and runs a real Tier-2 countdown so the veto button
@@ -725,8 +748,8 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#e8eef6" }}>{risk.name || wardId}</div>
-          <div style={{ fontSize: 12, color: "#7d8ea3", marginTop: 3 }}>
+          <div style={{ fontSize: 19, fontWeight: 700, color: "#eef3f9", letterSpacing: 0.2 }}>{risk.name || wardId}</div>
+          <div style={{ fontSize: 12, color: "#68788d", marginTop: 4 }}>
             {wardId}{risk.glacier_fed ? " · glacier-fed" : ""} · evacuate to {risk.evacuation_point}
           </div>
         </div>
@@ -740,9 +763,9 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
           { k: "Lead time", v: `${risk.estimated_lead_time_minutes} min` },
           { k: "Sensor coverage", v: `${Math.round(risk.data_completeness * 100)}%` },
         ].map((m) => (
-          <div key={m.k} style={{ background: "#121924", border: "1px solid #1e2836", borderRadius: 9, padding: "11px 13px" }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#e8eef6", fontVariantNumeric: "tabular-nums" }}>{m.v}</div>
-            <div style={{ fontSize: 11, color: "#7d8ea3", marginTop: 2 }}>{m.k}</div>
+          <div key={m.k} style={{ ...TILE, padding: "12px 14px" }}>
+            <div style={STATNUM}>{m.v}</div>
+            <div style={{ ...KICKER, marginTop: 5 }}>{m.k}</div>
           </div>
         ))}
       </div>
@@ -757,7 +780,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
           nothing, so an operator can tell "model says no" apart from
           "model isn't running" */}
       {risk.model_branch && (
-        <div style={{ background: "#111823", border: "1px solid #1e2836", borderRadius: 9, padding: "11px 13px" }}>
+        <div style={{ ...TILE, padding: "12px 14px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
             <span style={{ fontSize: 11.5, color: "#7d8ea3" }}>Satellite model (rainfall-triggered branch)</span>
             <span style={{ fontSize: 12, fontWeight: 700,
@@ -789,7 +812,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
 
       {/* reasons */}
       <div>
-        <div style={{ fontSize: 11.5, color: "#7d8ea3", marginBottom: 6 }}>Why this level</div>
+        <div style={{ ...KICKER, marginBottom: 8 }}>Why this level</div>
         <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
           {risk.reasons.map((x, i) => <li key={i} style={{ fontSize: 12.5, color: "#c3cfdd", lineHeight: 1.45 }}>{x}</li>)}
         </ul>
@@ -797,7 +820,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
 
       {/* telemetry charts */}
       <div>
-        <div style={{ fontSize: 11.5, color: "#7d8ea3", marginBottom: 8 }}>Recent telemetry</div>
+        <div style={{ ...KICKER, marginBottom: 10 }}>Recent telemetry</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
           {SENSOR_TYPES.map((tp) => {
             const sig = risk.signals.find((s) => s.name === tp);
@@ -805,7 +828,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
             const data = series[tp] || [];
             const avail = sig ? sig.available : true;
             return (
-              <div key={tp} style={{ background: "#111823", border: "1px solid #1e2836", borderRadius: 9, padding: 11, opacity: avail ? 1 : 0.55 }}>
+              <div key={tp} style={{ ...TILE, padding: 12, opacity: avail ? 1 : 0.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <span style={{ fontSize: 12, color: "#aebccd", textTransform: "capitalize" }}>{tp.replace("_", " ")}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: avail ? "#e8eef6" : "#6d7d92", fontVariantNumeric: "tabular-nums" }}>
@@ -836,7 +859,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
 
       {/* ward sensor health */}
       <div>
-        <div style={{ fontSize: 11.5, color: "#7d8ea3", marginBottom: 6 }}>Sensors in this ward</div>
+        <div style={{ ...KICKER, marginBottom: 8 }}>Sensors in this ward</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {wardSensors.map((s) => (
             <span key={s.sensor_id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6,
@@ -870,10 +893,10 @@ function SensorHealth({ sensors }) {
           <input type="checkbox" checked={onlySilent} onChange={(e) => setOnlySilent(e.target.checked)} /> Silent first only
         </label>
       </div>
-      <div style={{ border: "1px solid #1e2836", borderRadius: 9, overflow: "hidden" }}>
+      <div style={{ border: "1px solid #24334a", borderRadius: 11, overflow: "hidden", boxShadow: CARD.boxShadow }}>
         {rows.map((s, i) => (
           <div key={s.sensor_id} style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr 1fr auto", gap: 10, alignItems: "center",
-            padding: "10px 13px", background: i % 2 ? "#0f151e" : "#111823", borderTop: i ? "1px solid #172230" : "none" }}>
+            padding: "10px 13px", background: i % 2 ? "#0f1620" : "#131c28", borderTop: i ? "1px solid #1c2836" : "none" }}>
             <span style={{ fontSize: 12.5, color: "#cdd9e6", fontFamily: "ui-monospace, monospace" }}>{s.sensor_id}</span>
             <span style={{ fontSize: 12.5, color: "#9fb0c4" }}>{s.ward_name || s.ward_id}</span>
             <span style={{ fontSize: 12.5, color: "#9fb0c4", textTransform: "capitalize" }}>{s.type.replace("_", " ")}</span>
@@ -892,14 +915,14 @@ function SensorHealth({ sensors }) {
 /* ---------- Alert log ------------------------------------------------------- */
 function AlertLog({ alerts }) {
   return (
-    <div style={{ border: "1px solid #1e2836", borderRadius: 9, overflow: "hidden" }}>
+    <div style={{ border: "1px solid #24334a", borderRadius: 11, overflow: "hidden", boxShadow: CARD.boxShadow }}>
       <div style={{ display: "grid", gridTemplateColumns: "auto 1.3fr 1fr 1.2fr 1fr", gap: 10, padding: "9px 13px",
         background: "#0e141d", fontSize: 11, color: "#6d7d92", fontWeight: 600 }}>
         <span>Risk</span><span>Ward</span><span>Tier</span><span>Status</span><span style={{ justifySelf: "end" }}>When</span>
       </div>
       {alerts.map((a, i) => (
         <div key={a.alert_id} style={{ display: "grid", gridTemplateColumns: "auto 1.3fr 1fr 1.2fr 1fr", gap: 10,
-          alignItems: "center", padding: "10px 13px", background: i % 2 ? "#0f151e" : "#111823", borderTop: i ? "1px solid #172230" : "none" }}>
+          alignItems: "center", padding: "10px 13px", background: i % 2 ? "#0f1620" : "#131c28", borderTop: i ? "1px solid #1c2836" : "none" }}>
           <RiskDot level={a.risk_level} />
           <span style={{ fontSize: 12.5, color: "#cdd9e6" }}>{a.ward_name || a.ward_id}</span>
           <span style={{ fontSize: 11.5, color: TIER[a.tier]?.tone || "#9fb0c4" }}>{TIER[a.tier]?.label.split(" · ")[0] || a.tier}</span>
@@ -966,13 +989,15 @@ export default function App() {
 
       {/* top bar */}
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 20px", borderBottom: "1px solid #161f2b", background: "#0b1017", position: "sticky", top: 0, zIndex: 10 }}>
+        padding: "13px 20px", borderBottom: "1px solid #1c2635", background: "#0c1420",
+        boxShadow: "0 1px 0 #ffffff08, 0 10px 24px -16px #000", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 30, height: 30, borderRadius: 8, background: "linear-gradient(135deg,#1f8f5f,#2f76bd)",
-            display: "grid", placeItems: "center", fontSize: 15, fontWeight: 800, color: "#fff" }}>दृ</div>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg,#1f8f5f,#2f76bd)",
+            display: "grid", placeItems: "center", fontSize: 16, fontWeight: 800, color: "#fff",
+            boxShadow: "0 4px 12px -4px #2f76bd66" }}>दृ</div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#e8eef6", letterSpacing: 0.3 }}>DRISHTI</div>
-            <div style={{ fontSize: 10.5, color: "#6d7d92" }}>Flash-flood operations · Rudraprayag district</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#eef3f9", letterSpacing: 0.4 }}>DRISHTI</div>
+            <div style={{ fontSize: 10.5, color: "#68788d" }}>Flash-flood operations · Rudraprayag district</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -1004,24 +1029,29 @@ export default function App() {
       </header>
 
       {/* status strip */}
-      <div style={{ display: "flex", gap: 10, padding: "12px 20px", borderBottom: "1px solid #131b25", flexWrap: "wrap" }}>
-        {RISK_ORDER.slice().reverse().map((k) => (
-          <div key={k} style={{ display: "flex", alignItems: "center", gap: 9, background: "#0f151e",
-            border: `1px solid ${counts[k] && (k === "critical" || k === "warning") ? RISK[k].ring : "#1a232f"}`,
-            borderRadius: 9, padding: "8px 13px", minWidth: 128 }}>
-            <RiskDot level={k} />
-            <div>
-              <div style={{ fontSize: 19, fontWeight: 700, color: "#e8eef6", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{counts[k] || 0}</div>
-              <div style={{ fontSize: 10.5, color: "#7d8ea3", marginTop: 2 }}>{RISK[k].label} wards</div>
+      <div style={{ display: "flex", gap: 10, padding: "14px 20px", borderBottom: "1px solid #131b25", flexWrap: "wrap" }}>
+        {RISK_ORDER.slice().reverse().map((k) => {
+          const active = counts[k] && (k === "critical" || k === "warning");
+          return (
+            <div key={k} style={{ ...TILE, display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", minWidth: 132,
+              border: `1px solid ${active ? RISK[k].ring : "#1f2c3d"}`,
+              boxShadow: active ? `0 0 0 1px ${RISK[k].ring}55, 0 8px 22px -14px ${RISK[k].dot}55` : "none" }}>
+              <RiskDot level={k} />
+              <div>
+                <div style={{ ...STATNUM, fontSize: 21 }}>{counts[k] || 0}</div>
+                <div style={{ ...KICKER, marginTop: 3 }}>{RISK[k].label} wards</div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div style={{ flex: 1 }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 9, background: pending.length ? "#241a10" : "#0f151e",
-          border: `1px solid ${pending.length ? "#6b3f18" : "#1a232f"}`, borderRadius: 9, padding: "8px 13px" }}>
+        <div style={{ ...TILE, display: "flex", alignItems: "center", gap: 10, padding: "9px 14px",
+          background: pending.length ? "#241a0e" : TILE.background,
+          border: `1px solid ${pending.length ? "#8a5320" : "#1f2c3d"}`,
+          boxShadow: pending.length ? "0 0 0 1px #f0a35c33, 0 8px 22px -14px #f0a35c55" : "none" }}>
           <div>
-            <div style={{ fontSize: 19, fontWeight: 700, color: pending.length ? "#f0a35c" : "#e8eef6", lineHeight: 1 }}>{pending.length}</div>
-            <div style={{ fontSize: 10.5, color: "#7d8ea3", marginTop: 2 }}>veto windows open</div>
+            <div style={{ ...STATNUM, fontSize: 21, color: pending.length ? "#f6b06a" : "#f4f8fc" }}>{pending.length}</div>
+            <div style={{ ...KICKER, marginTop: 3, color: pending.length ? "#c79a6e" : KICKER.color }}>veto windows open</div>
           </div>
         </div>
       </div>
@@ -1036,19 +1066,30 @@ export default function App() {
       <main style={{ padding: 20 }}>
         {tab === "overview" && (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.5fr) minmax(0,1fr)", gap: 18 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ fontSize: 12.5, color: "#7d8ea3" }}>Situational overview — select a ward for detail</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={KICKER}>Situational overview — select a ward for detail</div>
               <WardMap wards={wards} selected={detailWard} onSelect={(id) => { setSelectedWard(id); }} />
               {pending.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 12.5, color: "#f0a35c", marginBottom: 8, fontWeight: 600 }}>Live veto window{pending.length > 1 ? "s" : ""}</div>
+                <div style={{ background: "#241608", border: "1px solid #8a5320", borderLeft: "3px solid #f0a35c",
+                  borderRadius: 12, padding: 16, boxShadow: "0 0 0 1px #f0a35c22, 0 14px 34px -16px #f0a35c40" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: "#f0a35c",
+                      boxShadow: "0 0 0 4px #f0a35c22", animation: "drpulse 1.8s ease-out infinite" }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3, color: "#f6c690" }}>
+                      Live veto window{pending.length > 1 ? "s" : ""} — auto-sends unless cancelled
+                    </span>
+                  </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {pending.map((a) => <VetoCard key={a.alert_id} alert={a} onVeto={api.veto} />)}
                   </div>
                 </div>
               )}
             </div>
-            <div style={{ background: "#0d131b", border: "1px solid #1a232f", borderRadius: 11, padding: 16 }}>
+            <div style={{ ...CARD, padding: 18,
+              border: `1px solid ${detailRisk && RISK[detailRisk] ? RISK[detailRisk].ring : CARD.border.split(" ").pop()}`,
+              boxShadow: detailRisk === "critical"
+                ? "0 0 0 1px #7d2b2b, 0 16px 40px -20px #ff564733"
+                : CARD.boxShadow }}>
               {detailWard && <WardDetail wardId={detailWard} api={api} sensors={sensors} riskHint={detailRisk} />}
             </div>
           </div>
@@ -1058,13 +1099,13 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)", gap: 18 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {pending.length === 0 && review.length === 0 && (
-                <div style={{ fontSize: 13, color: "#6d7d92", background: "#0d131b", border: "1px solid #1a232f", borderRadius: 10, padding: 16 }}>
+                <div style={{ ...CARD, fontSize: 13, color: "#8496ab", padding: 18 }}>
                   No alerts awaiting a decision. Tier-1 alerts dispatch automatically and appear in the log.
                 </div>
               )}
               {pending.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 12.5, color: "#f0a35c", marginBottom: 8, fontWeight: 600 }}>Veto windows — auto-send unless cancelled</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#f0a35c", marginBottom: 10 }}>Veto windows — auto-send unless cancelled</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {pending.map((a) => <VetoCard key={a.alert_id} alert={a} onVeto={api.veto} />)}
                   </div>
@@ -1072,7 +1113,7 @@ export default function App() {
               )}
               {review.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 12.5, color: "#e8c34a", marginBottom: 8, fontWeight: 600 }}>Held for review — nothing sends without approval</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#e8c34a", marginBottom: 10 }}>Held for review — nothing sends without approval</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {review.map((a) => <ReviewCard key={a.alert_id} alert={a} onApprove={api.approve} onDismiss={api.dismiss} />)}
                   </div>
@@ -1080,7 +1121,7 @@ export default function App() {
               )}
             </div>
             <div>
-              <div style={{ fontSize: 12.5, color: "#7d8ea3", marginBottom: 8 }}>Alert log</div>
+              <div style={{ ...KICKER, marginBottom: 10 }}>Alert log</div>
               <AlertLog alerts={alerts} />
             </div>
           </div>
