@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import xml.etree.ElementTree as ET
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Deque, Dict, List, Optional
@@ -200,6 +201,97 @@ def build_alert(
         veto_window_seconds=window,
         veto_deadline=deadline,
     )
+
+
+# --- CAP 1.2 rendering --------------------------------------------------
+# DRISHTI's stated dissemination path is SACHET / NDMA, which speaks CAP
+# (Common Alerting Protocol). Nothing here actually POSTs to SACHET — the
+# channel senders below are still stubs — but this renders a fired alert into
+# the exact CAP 1.2 XML a SACHET feed expects, so the format is real and
+# reviewable. `status` defaults to "Exercise": these alerts are not being
+# broadcast to the public, and saying so in the payload is the honest choice.
+
+_CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
+
+# risk level -> (urgency, severity, certainty) per the CAP value lists.
+_CAP_LEVEL_MAP = {
+    RiskLevel.CRITICAL: ("Immediate", "Extreme", "Observed"),
+    RiskLevel.WARNING: ("Expected", "Severe", "Likely"),
+    RiskLevel.WATCH: ("Future", "Moderate", "Possible"),
+}
+
+
+def _cap_dt(value: Optional[datetime]) -> str:
+    """CAP requires a timezone-qualified ISO-8601 instant."""
+    dt = value or datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat(timespec="seconds")
+
+
+def alert_to_cap_xml(alert: Alert, *, status: str = "Exercise") -> str:
+    """Render a fired alert as CAP 1.2 XML (the SACHET / NDMA wire format).
+
+    `status` is "Exercise" by default because DRISHTI is not wired to a live
+    public broadcaster; pass "Actual" only from a real deployment.
+    """
+    urgency, severity, certainty = _CAP_LEVEL_MAP.get(
+        alert.risk_level, ("Unknown", "Unknown", "Unknown")
+    )
+    info = get_ward_info(alert.ward_id)
+    lat, lon = info.get("latitude"), info.get("longitude")
+
+    root = ET.Element("alert", {"xmlns": _CAP_NS})
+    ET.SubElement(root, "identifier").text = f"drishti.{alert.alert_id}"
+    ET.SubElement(root, "sender").text = "drishti@sdma.uk.gov.in"
+    ET.SubElement(root, "sent").text = _cap_dt(alert.generated_at)
+    ET.SubElement(root, "status").text = status
+    ET.SubElement(root, "msgType").text = "Alert"
+    ET.SubElement(root, "scope").text = "Public"
+
+    node = ET.SubElement(root, "info")
+    ET.SubElement(node, "language").text = "en-IN"
+    ET.SubElement(node, "category").text = "Met"
+    if info.get("glacier_fed"):
+        # glacier / moraine / slope collapse is a geophysical trigger too
+        ET.SubElement(node, "category").text = "Geo"
+    ET.SubElement(node, "event").text = f"Flash flood {alert.risk_level.value}"
+    ET.SubElement(node, "urgency").text = urgency
+    ET.SubElement(node, "severity").text = severity
+    ET.SubElement(node, "certainty").text = certainty
+    ET.SubElement(node, "senderName").text = (
+        "DRISHTI — State Disaster Management Authority, Uttarakhand"
+    )
+    ET.SubElement(node, "headline").text = (
+        f"Flash flood {alert.risk_level.value} — {alert.ward_name or alert.ward_id}"
+    )
+    ET.SubElement(node, "description").text = alert.message
+    if alert.evacuation_point:
+        ET.SubElement(node, "instruction").text = (
+            f"Move to higher ground now. Nearest safe point: {alert.evacuation_point}."
+        )
+
+    for name, value in (
+        ("drishti:confidence", f"{alert.confidence:.3f}"),
+        ("drishti:tier", alert.tier.value),
+        ("drishti:lead_time_minutes", str(alert.estimated_lead_time_minutes)),
+    ):
+        p = ET.SubElement(node, "parameter")
+        ET.SubElement(p, "valueName").text = name
+        ET.SubElement(p, "value").text = value
+
+    area = ET.SubElement(node, "area")
+    ET.SubElement(area, "areaDesc").text = (
+        f"{alert.ward_name or alert.ward_id} ({alert.ward_id})"
+    )
+    if lat is not None and lon is not None:
+        ET.SubElement(area, "circle").text = f"{lat},{lon} 5.0"
+    geo = ET.SubElement(area, "geocode")
+    ET.SubElement(geo, "valueName").text = "drishti:ward_id"
+    ET.SubElement(geo, "value").text = alert.ward_id
+
+    ET.indent(root)
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")
 
 
 # --- Channel senders (stubs — replace with real integrations) ------------

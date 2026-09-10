@@ -54,7 +54,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -77,7 +77,7 @@ from ward_config import (
     get_ward_info,
     known_ward_ids,
 )
-from alert_dispatch import AlertDispatcher, build_alert, classify_tier
+from alert_dispatch import AlertDispatcher, alert_to_cap_xml, build_alert, classify_tier
 from demo_scenarios import router as demo_router, wire as wire_demo
 
 # Single shared in-memory state for the prototype. Replace with a proper store
@@ -406,6 +406,19 @@ def get_alert(alert_id: str):
     if alert is None:
         raise HTTPException(status_code=404, detail="unknown alert id")
     return alert
+
+
+@app.get("/alerts/{alert_id}/cap")
+def get_alert_cap(alert_id: str):
+    """The alert rendered as CAP 1.2 XML — the SACHET / NDMA wire format.
+
+    `status` is "Exercise" in the payload: DRISHTI is not wired to a live
+    public broadcaster, and the XML says so rather than implying otherwise.
+    """
+    alert = dispatcher.get(alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="unknown alert id")
+    return Response(content=alert_to_cap_xml(alert), media_type="application/xml")
 
 
 @app.post("/alerts/{alert_id}/veto", response_model=AlertActionResult)
