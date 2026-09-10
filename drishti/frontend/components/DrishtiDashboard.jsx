@@ -349,12 +349,34 @@ const fmtAgo = (iso) => {
 const secondsLeft = (deadline) => Math.max(0, (new Date(deadline).getTime() - Date.now()) / 1000);
 
 /* ---- alert chime ---------------------------------------------------------------
-   A short, quiet two-note sine chime (A5 → D6), synthesised with the Web Audio
-   API so there is no audio asset to license. Deliberately a notification tone,
-   not a siren. Peaks at ~34% gain. Every call is wrapped so a browser blocking
-   autoplay fails silently instead of throwing into the console mid-demo.
+   A short rising three-note sine chime (G5 → C6 → E6), synthesised with the Web
+   Audio API so there is no audio asset to license. A notification tone, not a
+   siren — but loud enough to be heard on a laptop speaker across a demo room.
+   Every call is wrapped so a browser blocking autoplay fails silently instead
+   of throwing into the console mid-demo.
    -------------------------------------------------------------------------- */
-function playChime(acRef) {
+function scheduleChime(ctx, destination, t0) {
+  const master = ctx.createGain();
+  master.gain.value = 0.9;
+  master.connect(destination);
+  // [frequency, start offset, duration] — staggered so the overlap stays well
+  // under clipping; each note peaks near 0.6.
+  const notes = [[784.0, 0.0, 0.34], [1046.5, 0.10, 0.40], [1318.5, 0.20, 0.55]];
+  for (const [freq, at, dur] of notes) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t0 + at);
+    g.gain.setValueAtTime(0.0001, t0 + at);
+    g.gain.exponentialRampToValueAtTime(0.6, t0 + at + 0.018);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+    osc.connect(g).connect(master);
+    osc.start(t0 + at);
+    osc.stop(t0 + at + dur + 0.05);
+  }
+}
+
+async function playChime(acRef) {
   try {
     let ac = acRef.current;
     if (!ac) {
@@ -362,33 +384,21 @@ function playChime(acRef) {
       if (!AC) return;
       ac = acRef.current = new AC();
     }
-    if (ac.state === "suspended") ac.resume().catch(() => {});
-    const t0 = ac.currentTime;
-    [[880, 0], [1174.66, 0.13]].forEach(([freq, at]) => {
-      const osc = ac.createOscillator();
-      const gain = ac.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, t0 + at);
-      gain.gain.setValueAtTime(0.0001, t0 + at);
-      gain.gain.exponentialRampToValueAtTime(0.34, t0 + at + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.55);
-      osc.connect(gain).connect(ac.destination);
-      osc.start(t0 + at);
-      osc.stop(t0 + at + 0.6);
-    });
+    // A context created without a user gesture starts "suspended" and stays
+    // silent with no error until resume() is awaited. Do that first.
+    if (ac.state !== "running") {
+      try { await ac.resume(); } catch { return; }
+    }
+    if (ac.state !== "running") return; // still blocked — no gesture yet
+    scheduleChime(ac, ac.destination, ac.currentTime + 0.03);
   } catch {
     /* autoplay policy / no Web Audio — stay silent, never break the demo */
   }
 }
 
-/* Chime once when any ward transitions INTO critical — a demo scenario firing
-   or a real live escalation. Not replayed while a ward stays critical; re-arms
-   if it drops to a lower tier and escalates again. */
-function useCriticalChime(wards, muted) {
-  const acRef = useRef(null);
-  const prevCriticalRef = useRef(null); // null until the first load is seen
-
-  // unlock the AudioContext on the first user gesture so a later chime can play
+/* Resume (or create) the AudioContext on the first user gesture anywhere on the
+   page, so an automatic chime later has a running context to play into. */
+function useAudioUnlock(acRef) {
   useEffect(() => {
     const unlock = () => {
       try {
@@ -398,7 +408,7 @@ function useCriticalChime(wards, muted) {
           if (!AC) return;
           ac = acRef.current = new AC();
         }
-        if (ac.state === "suspended") ac.resume().catch(() => {});
+        if (ac.state !== "running") ac.resume().catch(() => {});
       } catch { /* ignore */ }
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
@@ -409,17 +419,22 @@ function useCriticalChime(wards, muted) {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     };
-  }, []);
+  }, [acRef]);
+}
 
+/* Detect any ward transitioning INTO critical — a demo scenario firing or a
+   real live escalation — and call onEscalate(wardId) once per transition. Not
+   re-fired while a ward stays critical; re-arms if it drops to a lower tier and
+   escalates again. The first update only establishes the baseline. */
+function useNewCritical(wards, onEscalate) {
+  const prevRef = useRef(null);
   useEffect(() => {
-    const nowCritical = new Set(wards.filter((w) => w.risk === "critical").map((w) => w.ward_id));
-    const prev = prevCriticalRef.current;
-    prevCriticalRef.current = nowCritical;
-    if (prev === null) return;           // establish the baseline, don't chime on load
-    if (muted) return;
-    const escalated = [...nowCritical].some((id) => !prev.has(id));
-    if (escalated) playChime(acRef);
-  }, [wards, muted]);
+    const now = new Set(wards.filter((w) => w.risk === "critical").map((w) => w.ward_id));
+    const prev = prevRef.current;
+    prevRef.current = now;
+    if (prev === null) return;
+    for (const id of now) if (!prev.has(id)) onEscalate(id);
+  }, [wards, onEscalate]);
 }
 
 /* ============================================================================
@@ -901,7 +916,15 @@ export default function App() {
   const [tab, setTab] = useState("overview");
   const [selectedWard, setSelectedWard] = useState(null);
   const [muted, setMuted] = useState(false);
-  useCriticalChime(wards, muted);
+
+  const acRef = useRef(null);
+  const mutedRef = useRef(false);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
+  useAudioUnlock(acRef);
+  const onEscalate = useCallback(() => {
+    if (!mutedRef.current) playChime(acRef);
+  }, []);
+  useNewCritical(wards, onEscalate);
 
   const pending = alerts.filter((a) => a.status === "pending_veto");
   const review = alerts.filter((a) => a.status === "awaiting_review");
@@ -943,12 +966,20 @@ export default function App() {
             <span style={{ width: 7, height: 7, borderRadius: 999, background: connected ? "#6fd39b" : "#f0a35c" }} />
             {connected ? "Live feed connected" : "Reconnecting…"}
           </span>
-          <button onClick={() => setMuted((m) => !m)} title={muted ? "Alert sound muted" : "Alert sound on"}
-            aria-label={muted ? "Unmute alert sound" : "Mute alert sound"}
-            style={{ fontSize: 13, lineHeight: 1, color: "#9fb0c4", background: "#141c27",
-              border: "1px solid #26333f", borderRadius: 7, padding: "6px 9px", cursor: "pointer" }}>
-            {muted ? "🔇" : "🔊"}
-          </button>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => setMuted((m) => !m)} title={muted ? "Alert sound muted" : "Alert sound on"}
+              aria-label={muted ? "Unmute alert sound" : "Mute alert sound"}
+              style={{ fontSize: 13, lineHeight: 1, color: "#9fb0c4", background: "#141c27",
+                border: "1px solid #26333f", borderRadius: 7, padding: "6px 9px", cursor: "pointer" }}>
+              {muted ? "🔇" : "🔊"}
+            </button>
+            {/* sanity-check audio before a live demo — bypasses mute on purpose */}
+            <button onClick={() => playChime(acRef)} title="Play the alert chime now"
+              style={{ fontSize: 11, color: "#9fb0c4", background: "#141c27",
+                border: "1px solid #26333f", borderRadius: 7, padding: "6px 9px", cursor: "pointer" }}>
+              Test sound
+            </button>
+          </div>
           {!USE_LIVE && (
             <button onClick={() => api.simulate(wards.find((w) => w.risk === "watch")?.ward_id)}
               style={{ fontSize: 11.5, color: "#9fb0c4", background: "#141c27", border: "1px solid #26333f", borderRadius: 7, padding: "6px 11px", cursor: "pointer" }}>
