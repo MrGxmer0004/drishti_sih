@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DRISHTI — Demo Controls</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: #0a0e14; color: #c3cfdd;
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .panel {
+    border: 2px dashed #f0a35c; border-radius: 12px;
+    background: #14100a; padding: 20px;
+  }
+  h1 { font-size: 16px; margin: 0 0 2px; color: #f0a35c; letter-spacing: .3px; }
+  .sub { font-size: 12px; color: #b79a86; margin-bottom: 16px; }
+  label { display: block; font-size: 11px; color: #9fb0c4; margin: 12px 0 4px; }
+  input[type=text] {
+    width: 100%; background: #0e141d; border: 1px solid #33465b; color: #e8eef6;
+    border-radius: 7px; padding: 8px 10px; font: inherit;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  button {
+    flex: 1 1 auto; min-width: 150px;
+    background: #1c2836; color: #cdd9e6; border: 1px solid #33465b;
+    border-radius: 8px; padding: 11px 14px; font: 600 13px inherit; cursor: pointer;
+  }
+  button:hover { background: #24344a; }
+  button.reset { border-color: #5c4f1c; color: #ecdfa6; }
+  button.danger { border-color: #7d2b2b; color: #ff8a7a; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .out {
+    margin-top: 16px; background: #0d131b; border: 1px solid #1e2836;
+    border-radius: 8px; padding: 12px; font: 12px/1.45 ui-monospace, monospace;
+    white-space: pre-wrap; word-break: break-word; min-height: 40px; color: #9fb0c4;
+  }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 999px; background: #6d7d92; }
+  .dot.ok { background: #6fd39b; } .dot.bad { background: #ff5647; } .dot.wait { background: #f0a35c; }
+  a { color: #6fb4f0; }
+  footer { margin-top: 14px; font-size: 11px; color: #6d7d92; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>⚠ DRISHTI DEMO CONTROLS</h1>
+    <div class="sub">
+      Rehearsed scenario triggers for the judge demo — <b>not</b> a claim of live
+      sensors. Each button POSTs pre-built telemetry through the real ingestion
+      pipeline; the dashboard then reacts exactly as it would to real data.
+    </div>
+
+    <label for="api">Backend base URL</label>
+    <input id="api" type="text" placeholder="https://your-backend.onrender.com" />
+
+    <div class="row" style="margin-top:10px">
+      <span class="status"><span id="hdot" class="dot"></span><span id="hmsg">backend not checked</span></span>
+      <button style="flex:0 0 auto;min-width:0;padding:6px 12px" onclick="checkHealth()">Check backend</button>
+    </div>
+
+    <div id="buttons" class="row"></div>
+
+    <div id="out" class="out">Ready.</div>
+
+    <footer>
+      Open the dashboard in another tab: <a id="dash" href="/" target="_blank">/</a>
+      &nbsp;·&nbsp; Order for a clean run: <b>reset</b> → scenario → talk → <b>reset</b> → next scenario.
+    </footer>
+  </div>
+</div>
+
+<script>
+(function () {
+  var apiInput = document.getElementById("api");
+  var out = document.getElementById("out");
+  var buttons = document.getElementById("buttons");
+
+  var qp = new URLSearchParams(location.search).get("api");
+  apiInput.value = (qp || localStorage.getItem("drishti_demo_api") || "http://localhost:8000").replace(/\/$/, "");
+  apiInput.addEventListener("change", function () {
+    apiInput.value = apiInput.value.replace(/\/$/, "");
+    localStorage.setItem("drishti_demo_api", apiInput.value);
+  });
+
+  function base() { return apiInput.value.replace(/\/$/, ""); }
+  function show(txt) { out.textContent = txt; }
+
+  window.checkHealth = function () {
+    var d = document.getElementById("hdot"), m = document.getElementById("hmsg");
+    d.className = "dot wait"; m.textContent = "checking…";
+    var t = setTimeout(function () { d.className = "dot bad"; m.textContent = "no response in 3s — backend may be asleep (cold start ~50s)"; }, 3000);
+    fetch(base() + "/health").then(function (r) { return r.json(); }).then(function (j) {
+      clearTimeout(t);
+      var ok = j && j.status === "ok";
+      d.className = "dot " + (ok ? "ok" : "bad");
+      m.textContent = ok ? ("awake · model_available=" + j.model_available) : "unhealthy";
+    }).catch(function (e) {
+      clearTimeout(t); d.className = "dot bad"; m.textContent = "unreachable (" + e.message + ")";
+    });
+  };
+
+  function trigger(id, btn) {
+    var all = buttons.querySelectorAll("button");
+    all.forEach(function (b) { b.disabled = true; });
+    show("POST " + base() + "/demo/trigger/" + id + " …");
+    fetch(base() + "/demo/trigger/" + id, { method: "POST" })
+      .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
+      .then(function (res) { show("HTTP " + res.s + "\n" + JSON.stringify(res.j, null, 2)); })
+      .catch(function (e) { show("ERROR: " + e.message + "\n\nIs the backend URL right and awake? Use “Check backend”."); })
+      .finally(function () { all.forEach(function (b) { b.disabled = false; }); });
+  }
+
+  var FALLBACK = [
+    { id: "reset", label: "Reset" },
+    { id: "rainfall_storm", label: "Rainfall storm" },
+    { id: "geohazard_creep", label: "Geohazard creep" },
+    { id: "multi_ward_escalation", label: "Multi-ward escalation" }
+  ];
+
+  function render(list) {
+    buttons.innerHTML = "";
+    list.forEach(function (s) {
+      var b = document.createElement("button");
+      b.textContent = s.label || s.id;
+      if (s.id === "reset") b.className = "reset";
+      b.title = s.description || "";
+      b.onclick = function () { trigger(s.id, b); };
+      buttons.appendChild(b);
+    });
+  }
+
+  render(FALLBACK);
+  // Prefer the live list so any new scenario shows up automatically.
+  fetch(base() + "/demo/scenarios").then(function (r) { return r.json(); }).then(function (list) {
+    if (Array.isArray(list) && list.length) render(list.map(function (s) { return { id: s.id, label: s.label, description: s.description }; }));
+  }).catch(function () {});
+
+  checkHealth();
+})();
+</script>
+</body>
+</html>
