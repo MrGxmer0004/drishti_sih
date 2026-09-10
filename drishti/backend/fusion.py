@@ -204,7 +204,14 @@ def assess_ward_risk_fused(
 
     fused_level = max((rule_level, model_level), key=risk_rank)
     if risk_rank(fused_level) > risk_rank(rule_level):
+        # The ML branch raised the level; the ground sensors have no trend for
+        # this higher level, so fall back to the terrain baseline and say so
+        # rather than carrying a projection that was fitted at a lower level.
         assessment.estimated_lead_time_minutes = estimate_lead_time(ward_id, fused_level)
+        assessment.lead_time_band = None
+        assessment.lead_time_driver = "meteo_model"
+        assessment.lead_time_basis = "terrain_baseline"
+        assessment.impact_imminent = False
 
     assessment.risk_level = fused_level
     assessment.confidence = round(max(CONF_FLOOR, min(CONF_CAP, fused_conf)), 3)

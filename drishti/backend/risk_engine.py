@@ -141,6 +141,15 @@ class RiskAssessment:
     stale_sensor_types: List[str] = field(default_factory=list)
     assessed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # --- Lead-time projection (see project_lead_time) ---
+    # `estimated_lead_time_minutes` above is always an int so the alert path
+    # (veto-window sizing) keeps working. These fields say how trustworthy it is.
+    lead_time_band: Optional[List[int]] = None   # [min, max] from trend uncertainty
+    lead_time_driver: Optional[str] = None       # signal the projection is based on
+    lead_time_basis: str = "terrain_baseline"    # terrain_baseline | trend_projection
+                                                 # | insufficient_history | trend_flat
+    impact_imminent: bool = False                # driver already past its CRITICAL threshold
+
     # Filled in by fusion.py when the meteo-hydro ML branch has an opinion on
     # this ward. Left as an "unavailable" dict when the model is off, missing,
     # or has no fresh feature vector — never silently omitted, so the dashboard
@@ -316,15 +325,13 @@ def _score_confidence(
 
 
 def estimate_lead_time(ward_id: str, level: RiskLevel) -> int:
-    """Minutes of usable warning time for a ward at a given risk level.
+    """Terrain-baseline FALLBACK for lead time, in minutes.
 
-    Placeholder heuristic: shrink the ward's terrain-based baseline as risk
-    escalates. It is NOT a propagation model — there is no routing, no channel
-    geometry, no travel-time calculation behind it. Replace once the model
-    produces a real lead-time estimate.
-
-    Lives here rather than inline so the fusion layer recomputes it the same
-    way when the ML branch raises a ward's level.
+    Shrinks the ward's terrain-based baseline as risk escalates. This is not a
+    propagation model — no routing, no travel-time. `project_lead_time()` below
+    is the real estimate; this is only used when there is no usable trend
+    (fresh ward, flat/declining driver) or when the ML branch escalates a level
+    the ground sensors have no trend for.
     """
     base = get_ward_info(ward_id)["baseline_lead_time_minutes"]
     return {
@@ -333,6 +340,143 @@ def estimate_lead_time(ward_id: str, level: RiskLevel) -> int:
         RiskLevel.WARNING: int(base * 0.5),
         RiskLevel.CRITICAL: max(int(base * 0.25), 5),
     }[level]
+
+
+# --- Real lead-time projection -------------------------------------------
+# Project the dominant driver's recent trend forward to the moment it crosses
+# its CRITICAL threshold, and report a band from the slope's uncertainty.
+
+# What "impact" means for each driver, and in what quantity the projection runs.
+#   rainfall     -> 60-min accumulation (mm), same figure _rainfall_signal reports
+#   water_level  -> rise above the window trough (m), same as _water_level_signal
+#   slope_tilt   -> latest absolute tilt (deg), same as _slope_signal
+_DRIVER_CRITICAL_TARGET: Dict[str, float] = {
+    "rainfall": RAINFALL_CRITICAL_MM,
+    "water_level": WATER_LEVEL_RISE_CRITICAL_M,
+    "slope_tilt": SLOPE_TILT_CRITICAL_DEG,
+}
+_DRIVER_WINDOW_MINUTES: Dict[str, int] = {
+    "rainfall": RAINFALL_WINDOW_MINUTES,
+    "water_level": WATER_LEVEL_WINDOW_MINUTES,
+    "slope_tilt": SLOPE_FRESHNESS_MINUTES,
+}
+_MIN_TREND_SAMPLES = 3
+_MIN_TREND_SPAN_MINUTES = 8.0
+_LEAD_TIME_CAP_MINUTES = 600
+
+
+@dataclass
+class LeadTimeEstimate:
+    minutes: int
+    driver: Optional[str] = None
+    band: Optional[List[int]] = None
+    basis: str = "terrain_baseline"
+    impact_imminent: bool = False
+
+
+def _linfit(points: List[tuple]) -> tuple:
+    """Least-squares slope (value units per minute) and its standard error.
+
+    `points` is [(minutes_from_start, value), ...]. Pure-Python; no numpy.
+    """
+    n = len(points)
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    if sxx == 0:
+        return 0.0, 0.0
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    slope = sxy / sxx
+    if n <= 2:
+        return slope, 0.0
+    resid = [y - (my + slope * (x - mx)) for x, y in zip(xs, ys)]
+    s2 = sum(r * r for r in resid) / (n - 2)
+    se = (s2 / sxx) ** 0.5
+    return slope, se
+
+
+def _driver_trend_points(
+    driver_name: str, readings: List[NormalizedReading], now: datetime
+) -> tuple:
+    """(current_value, [(minutes_from_start, value), ...]) for the driver,
+    tracked in the SAME quantity its signal function reports. Returns
+    (None, []) if there isn't enough fresh history to fit a trend."""
+    win_minutes = _DRIVER_WINDOW_MINUTES.get(driver_name)
+    if win_minutes is None:
+        return None, []
+    window = _window(readings, win_minutes, now)
+    if len(window) < _MIN_TREND_SAMPLES:
+        return None, []
+    t0 = _aware(window[0].timestamp)
+    span = (_aware(window[-1].timestamp) - t0).total_seconds() / 60.0
+    if span < _MIN_TREND_SPAN_MINUTES:
+        return None, []
+
+    trough = min(r.value for r in window) if driver_name == "water_level" else 0.0
+    pts: List[tuple] = []
+    accum = 0.0
+    for r in window:
+        m = (_aware(r.timestamp) - t0).total_seconds() / 60.0
+        if driver_name == "rainfall":
+            accum += r.value
+            pts.append((m, accum))
+        elif driver_name == "water_level":
+            pts.append((m, r.value - trough))
+        else:  # slope_tilt
+            pts.append((m, abs(r.value)))
+    current = pts[-1][1]
+    return current, pts
+
+
+def project_lead_time(
+    ward_id: str,
+    driver_name: Optional[str],
+    readings: List[NormalizedReading],
+    level: RiskLevel,
+    now: datetime,
+) -> LeadTimeEstimate:
+    """Minutes until the driver crosses its CRITICAL threshold at its current
+    rate of change, with a band from the slope's standard error.
+
+    Degrades honestly: no elevated driver, or a driver with no CRITICAL target
+    (glacier melt), or too little history, or a flat/declining trend -> the
+    terrain baseline, tagged with why.
+    """
+    baseline = estimate_lead_time(ward_id, level)
+    target = _DRIVER_CRITICAL_TARGET.get(driver_name) if driver_name else None
+    if driver_name is None or target is None:
+        return LeadTimeEstimate(minutes=baseline, driver=driver_name, basis="terrain_baseline")
+
+    current, pts = _driver_trend_points(driver_name, readings, now)
+    if current is None:
+        return LeadTimeEstimate(
+            minutes=baseline, driver=driver_name, basis="insufficient_history"
+        )
+    if current >= target:
+        return LeadTimeEstimate(
+            minutes=0, driver=driver_name, basis="trend_projection", impact_imminent=True
+        )
+
+    slope, se = _linfit(pts)
+    if slope <= 0:
+        return LeadTimeEstimate(minutes=baseline, driver=driver_name, basis="trend_flat")
+
+    remaining = target - current
+
+    def _clamp(m: float) -> int:
+        return int(max(0, min(_LEAD_TIME_CAP_MINUTES, round(m))))
+
+    fast = slope + se
+    slow = max(slope - se, slope * 0.25)  # keep the optimistic edge finite
+    band = sorted([_clamp(remaining / fast), _clamp(remaining / slow)])
+    return LeadTimeEstimate(
+        minutes=_clamp(remaining / slope),
+        driver=driver_name,
+        band=band,
+        basis="trend_projection",
+    )
 
 
 def assess_ward_risk(
@@ -415,10 +559,26 @@ def assess_ward_risk(
     if not reasons:
         reasons.append("no elevated signals")
 
+    driver_readings = {
+        "rainfall": rainfall,
+        "water_level": water,
+        "slope_tilt": slope,
+    }.get(driver.name if driver else None, [])
+    lead = project_lead_time(
+        ward_id, driver.name if driver else None, driver_readings, overall, now
+    )
+    if lead.basis == "trend_projection" and not lead.impact_imminent:
+        reasons.append(
+            f"lead time ~{lead.minutes}min (band {lead.band[0]}–{lead.band[1]}min) "
+            f"projected from the {lead.driver} trend"
+        )
+    elif lead.impact_imminent:
+        reasons.append(f"{lead.driver} is already past its critical threshold — impact imminent")
+
     return RiskAssessment(
         ward_id=ward_id,
         risk_level=overall,
-        estimated_lead_time_minutes=estimate_lead_time(ward_id, overall),
+        estimated_lead_time_minutes=lead.minutes,
         reasons=reasons,
         confidence=confidence,
         confidence_factors=confidence_factors,
@@ -426,4 +586,8 @@ def assess_ward_risk(
         data_completeness=round(completeness, 3),
         stale_sensor_types=stale,
         assessed_at=now,
+        lead_time_band=lead.band,
+        lead_time_driver=lead.driver,
+        lead_time_basis=lead.basis,
+        impact_imminent=lead.impact_imminent,
     )

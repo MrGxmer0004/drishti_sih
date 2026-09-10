@@ -231,6 +231,10 @@ def list_wards():
                 "confidence": a.confidence,
                 "lead": a.estimated_lead_time_minutes,   # dashboard alias
                 "estimated_lead_time_minutes": a.estimated_lead_time_minutes,
+                "lead_time_band": a.lead_time_band,
+                "lead_time_driver": a.lead_time_driver,
+                "lead_time_basis": a.lead_time_basis,
+                "impact_imminent": a.impact_imminent,
                 "glacier": info["glacier_fed"],      # dashboard alias
                 "glacier_fed": info["glacier_fed"],
                 "evac": info["evacuation_point"],    # dashboard alias
@@ -263,6 +267,10 @@ def ward_risk(ward_id: str):
         "would_dispatch_as": tier.value,
         "tier_reason": tier_reason,
         "estimated_lead_time_minutes": a.estimated_lead_time_minutes,
+        "lead_time_band": a.lead_time_band,
+        "lead_time_driver": a.lead_time_driver,
+        "lead_time_basis": a.lead_time_basis,
+        "impact_imminent": a.impact_imminent,
         "evacuation_point": info["evacuation_point"],
         "glacier_fed": info["glacier_fed"],
         "reasons": a.reasons,
