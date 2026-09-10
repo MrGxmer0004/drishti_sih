@@ -11,10 +11,10 @@ TWO SETS OF COORDINATES, deliberately:
   * `map_x` / `map_y` are PERCENTAGE positions on the dashboard's schematic
     ward map. They are layout values, not geography. The dashboard places a
     marker at `left: map_x%`, `top: map_y%`.
-  * `latitude` / `longitude` are the real WGS84 coordinates. They are None
-    here because the GIS member owns the real ward boundary layer; nothing in
-    the risk path reads them yet. Fill them in when that layer lands, then
-    derive `map_x`/`map_y` from a projection instead of hand-placing them.
+  * `latitude` / `longitude` are the real WGS84 coordinates (point locations
+    for the six pilot wards in Rudraprayag district, Uttarakhand). The
+    dashboard's geographic map projects markers from these; `map_x`/`map_y`
+    are kept only as a fallback for the old schematic view.
 
 The ward IDs below match the ones used in `demo.py` and in the dashboard's
 offline demo mode, so live and demo mode show the same place names.
@@ -41,7 +41,7 @@ WARD_REGISTRY: Dict[str, WardInfo] = {
         "glacier_fed": False,
         "baseline_lead_time_minutes": 20,
         "map_x": 34, "map_y": 62,
-        "latitude": None, "longitude": None,
+        "latitude": 30.2844, "longitude": 78.9811,
     },
     "WD_1044": {
         "name": "Gaurikund",
@@ -49,7 +49,7 @@ WARD_REGISTRY: Dict[str, WardInfo] = {
         "glacier_fed": True,
         "baseline_lead_time_minutes": 15,
         "map_x": 55, "map_y": 30,
-        "latitude": None, "longitude": None,
+        "latitude": 30.6606, "longitude": 79.0209,
     },
     "WD_2011": {
         "name": "Sonprayag",
@@ -57,7 +57,7 @@ WARD_REGISTRY: Dict[str, WardInfo] = {
         "glacier_fed": True,
         "baseline_lead_time_minutes": 18,
         "map_x": 46, "map_y": 48,
-        "latitude": None, "longitude": None,
+        "latitude": 30.6280, "longitude": 79.0207,
     },
     "WD_2087": {
         "name": "Ukhimath",
@@ -65,7 +65,7 @@ WARD_REGISTRY: Dict[str, WardInfo] = {
         "glacier_fed": False,
         "baseline_lead_time_minutes": 25,
         "map_x": 68, "map_y": 40,
-        "latitude": None, "longitude": None,
+        "latitude": 30.5147, "longitude": 79.0900,
     },
     "WD_3009": {
         "name": "Chandrapuri",
@@ -73,7 +73,7 @@ WARD_REGISTRY: Dict[str, WardInfo] = {
         "glacier_fed": False,
         "baseline_lead_time_minutes": 22,
         "map_x": 60, "map_y": 72,
-        "latitude": None, "longitude": None,
+        "latitude": 30.3670, "longitude": 78.9880,
     },
     "WD_3044": {
         "name": "Tilwara",
@@ -81,7 +81,7 @@ WARD_REGISTRY: Dict[str, WardInfo] = {
         "glacier_fed": False,
         "baseline_lead_time_minutes": 24,
         "map_x": 24, "map_y": 68,
-        "latitude": None, "longitude": None,
+        "latitude": 30.2430, "longitude": 78.9560,
     },
 }
 
