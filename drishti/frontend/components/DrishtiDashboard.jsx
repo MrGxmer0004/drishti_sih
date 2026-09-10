@@ -450,49 +450,60 @@ function Sparkline({ data, color }) {
 }
 
 /* ---------- Ward map — real geography ---------------------------------------
-   react-simple-maps over a locally-bundled India states TopoJSON
-   (public/geo/india-states.topo.json — DataMeet / Census-2011 boundaries,
-   simplified to state level). Served same-origin from /public, so the map
-   still draws with no internet. Markers project from real ward lat/lon out
-   of /wards; risk tier, critical pulse, click-to-select and the legend are
-   carried over unchanged from the previous schematic map.
+   react-simple-maps over locally-bundled TopoJSON, served same-origin from
+   /public so the map draws with no internet:
+     india-states.topo.json         — all-India states, for the state-context view
+     uttarakhand-districts.topo.json — the 13 UK districts, backdrop at cluster zoom
+   Markers project from real ward latitude/longitude out of /wards. Labels show
+   only for the hovered or selected ward so the six-ward cluster stays legible;
+   every other ward keeps a persistent dot. Tier colour, the critical pulse,
+   click-to-select, the district/state toggle and the legend are unchanged.
    ------------------------------------------------------------------------- */
-const GEO_URL = "/geo/india-states.topo.json";
-const MAP_W = 820;
-const MAP_H = 520;
-
-// operational default: the six-ward cluster in Rudraprayag district, padded
-// so markers never sit on the frame edge.
-const CLUSTER_BOX = { lonMin: 78.72, lonMax: 79.30, latMin: 30.09, latMax: 30.83 };
-// state-context view: the Uttarakhand bounding box.
-const UK_BOX = { lonMin: 77.45, lonMax: 81.15, latMin: 28.60, latMax: 31.55 };
+const STATES_URL = "/geo/india-states.topo.json";
+const DISTRICTS_URL = "/geo/uttarakhand-districts.topo.json";
+const MAP_W = 860;
+const MAP_H = 560;
 
 const UK_NAMES = ["Uttarakhand", "Uttaranchal"];
-const isUttarakhand = (props = {}) =>
-  UK_NAMES.includes(props.st_nm || props.NAME_1 || props.name || "");
+const isUttarakhand = (p = {}) => UK_NAMES.includes(p.st_nm || p.NAME_1 || p.name || "");
+const HOME_DISTRICT = "Rudraprayag";
 
-const boxPolygon = (b) => ({
-  type: "Polygon",
-  coordinates: [[
-    [b.lonMin, b.latMin], [b.lonMax, b.latMin],
-    [b.lonMax, b.latMax], [b.lonMin, b.latMax], [b.lonMin, b.latMin],
-  ]],
+// state-context view: the Uttarakhand bounding box.
+const UK_BOX = { lonMin: 77.45, lonMax: 81.20, latMin: 28.55, latMax: 31.55 };
+
+// how far to pad the raw ward bounding box for the default view
+const CLUSTER_PAD = 1.2;        // × the raw span, each side (≈2.4× total)
+const CLUSTER_MIN_HALF = 0.32;  // deg — floor so a tight cluster isn't over-zoomed
+
+// A MultiPoint of the box corners — NOT a Polygon. A lat/lon Polygon ring can
+// be read by d3-geo as the winding-complement (the whole sphere minus the box),
+// which makes fitExtent zoom all the way out. MultiPoint has no such ambiguity.
+const boxPoints = (b) => ({
+  type: "MultiPoint",
+  coordinates: [[b.lonMin, b.latMin], [b.lonMax, b.latMin], [b.lonMax, b.latMax], [b.lonMin, b.latMax]],
 });
 
+// Frame the ward cluster with real breathing room: expand the raw bounding
+// box well past the points, floor the span, and keep longitude at least 0.7×
+// latitude so six near-collinear wards don't collapse to a vertical line. The
+// cluster ends up a comfortable minority of the frame with geography around it.
+function clusterBox(pts) {
+  if (!pts.length) return { lonMin: 78.55, lonMax: 79.55, latMin: 29.95, latMax: 30.95 };
+  const lons = pts.map((p) => p[0]), lats = pts.map((p) => p[1]);
+  const cx = (Math.min(...lons) + Math.max(...lons)) / 2;
+  const cy = (Math.min(...lats) + Math.max(...lats)) / 2;
+  let halfLat = Math.max((Math.max(...lats) - Math.min(...lats)) * CLUSTER_PAD, CLUSTER_MIN_HALF);
+  let halfLon = Math.max((Math.max(...lons) - Math.min(...lons)) * CLUSTER_PAD, halfLat * 0.7);
+  return { lonMin: cx - halfLon, lonMax: cx + halfLon, latMin: cy - halfLat, latMax: cy + halfLat };
+}
+
 function WardMap({ wards, selected, onSelect }) {
-  // react-simple-maps pulls in d3-zoom / measures the DOM; only mount it
-  // client-side to avoid an App-Router hydration mismatch.
+  // react-simple-maps measures the DOM; only mount it client-side to avoid an
+  // App-Router hydration mismatch.
   const [mounted, setMounted] = useState(false);
   const [view, setView] = useState("district"); // "district" | "state"
+  const [hovered, setHovered] = useState(null);
   useEffect(() => setMounted(true), []);
-
-  const projection = useMemo(() => {
-    const box = view === "state" ? UK_BOX : CLUSTER_BOX;
-    return geoMercator().fitExtent(
-      [[26, 26], [MAP_W - 26, MAP_H - 26]],
-      boxPolygon(box),
-    );
-  }, [view]);
 
   const markers = useMemo(() => wards
     .map((w) => ({ ...w, _lon: Number(w.longitude), _lat: Number(w.latitude) }))
@@ -500,29 +511,59 @@ function WardMap({ wards, selected, onSelect }) {
       && Math.abs(w._lat) <= 90 && Math.abs(w._lon) <= 180),
     [wards]);
 
+  const projection = useMemo(() => {
+    const box = view === "state" ? UK_BOX : clusterBox(markers.map((w) => [w._lon, w._lat]));
+    return geoMercator().fitExtent([[24, 24], [MAP_W - 24, MAP_H - 24]], boxPoints(box));
+  }, [view, markers]);
+
   const frame = {
     position: "relative", width: "100%", aspectRatio: `${MAP_W} / ${MAP_H}`,
-    minHeight: 340, borderRadius: 10, overflow: "hidden",
-    background: "radial-gradient(120% 120% at 30% 10%, #17202c 0%, #10161f 60%, #0c1119 100%)",
-    border: "1px solid #1e2836",
+    minHeight: 360, borderRadius: 12, overflow: "hidden",
+    background: "radial-gradient(130% 130% at 25% 0%, #142031 0%, #0e1622 55%, #0a0f18 100%)",
+    border: "1px solid #223041", boxShadow: "inset 0 1px 0 #ffffff08, 0 12px 32px -20px #000",
   };
 
   if (!mounted) {
     return <div style={{ ...frame, display: "grid", placeItems: "center", color: "#6d7d92", fontSize: 12 }}>Loading map…</div>;
   }
 
+  const labelFor = (w) => {
+    const isSel = selected === w.ward_id;
+    if (!(isSel || hovered === w.ward_id)) return null;
+    return (
+      <text x={13} y={4} dominantBaseline="middle" style={{
+        fontSize: 11.5, fontWeight: isSel ? 700 : 600,
+        fill: isSel ? "#f4f8fc" : "#c8d4e2", pointerEvents: "none",
+        paintOrder: "stroke", stroke: "#0a0f18", strokeWidth: 4, strokeLinejoin: "round",
+      }}>{w.name}</text>
+    );
+  };
+
   return (
     <div style={frame}>
-      <ComposableMap projection={projection} width={MAP_W} height={MAP_H}
-        style={{ width: "100%", height: "100%" }}>
-        <Geographies geography={GEO_URL}>
+      <ComposableMap projection={projection} width={MAP_W} height={MAP_H} style={{ width: "100%", height: "100%" }}>
+        {/* base — all-India states, Uttarakhand lifted out of the backdrop */}
+        <Geographies geography={STATES_URL}>
           {({ geographies }) => geographies.map((geo) => {
             const uk = isUttarakhand(geo.properties);
             return (
               <Geography key={geo.rsmKey} geography={geo}
-                fill={uk ? "#182634" : "#0e141d"}
-                stroke={uk ? "#3a4d63" : "#1b2634"}
-                strokeWidth={uk ? 1 : 0.5}
+                fill={uk ? "#1b2a3c" : "#0f1620"}
+                stroke={uk ? "#465c76" : "#2a3949"}
+                strokeWidth={uk ? 1.1 : 0.5}
+                style={{ default: { outline: "none" }, hover: { outline: "none" }, pressed: { outline: "none" } }} />
+            );
+          })}
+        </Geographies>
+        {/* overlay — Uttarakhand districts, geographic context at cluster zoom */}
+        <Geographies geography={DISTRICTS_URL}>
+          {({ geographies }) => geographies.map((geo) => {
+            const home = geo.properties.district === HOME_DISTRICT;
+            return (
+              <Geography key={geo.rsmKey} geography={geo}
+                fill={home ? "#25384f" : "transparent"}
+                stroke={home ? "#63799680" : "#3c4e6480"}
+                strokeWidth={home ? 1.2 : 0.7}
                 style={{ default: { outline: "none" }, hover: { outline: "none" }, pressed: { outline: "none" } }} />
             );
           })}
@@ -534,19 +575,18 @@ function WardMap({ wards, selected, onSelect }) {
           const pulsing = w.risk === "critical";
           return (
             <Marker key={w.ward_id} coordinates={[w._lon, w._lat]}
-              onClick={() => onSelect(w.ward_id)} style={{ default: { cursor: "pointer" } }}>
+              onClick={() => onSelect(w.ward_id)}
+              onMouseEnter={() => setHovered(w.ward_id)}
+              onMouseLeave={() => setHovered((h) => (h === w.ward_id ? null : h))}
+              style={{ default: { cursor: "pointer" }, hover: { cursor: "pointer" }, pressed: { cursor: "pointer" } }}>
               {pulsing && (
-                <circle r={13} fill={r.dot} opacity={0.25}
+                <circle r={13} fill={r.dot} opacity={0.22}
                   style={{ transformBox: "fill-box", transformOrigin: "center", animation: "drpulse 1.8s ease-out infinite" }} />
               )}
-              {isSel && <circle r={11} fill="none" stroke={r.ring} strokeWidth={3} />}
-              {isSel && <circle r={14} fill="none" stroke="#ffffff22" strokeWidth={2} />}
-              <circle r={7} fill={r.dot} stroke="#0c1119" strokeWidth={1.5} />
-              <text textAnchor="middle" y={-14}
-                style={{ fontSize: 10.5, fontWeight: isSel ? 700 : 500, fill: isSel ? "#e8eef6" : "#9fb0c4",
-                  paintOrder: "stroke", stroke: "#0e141d", strokeWidth: 3, pointerEvents: "none" }}>
-                {w.name}
-              </text>
+              {isSel && <circle r={11} fill="none" stroke={r.dot} strokeWidth={2.5} opacity={0.9} />}
+              {isSel && <circle r={14.5} fill="none" stroke="#ffffff22" strokeWidth={2} />}
+              <circle r={6.5} fill={r.dot} stroke="#0a0f18" strokeWidth={1.6} />
+              {labelFor(w)}
             </Marker>
           );
         })}
@@ -554,14 +594,14 @@ function WardMap({ wards, selected, onSelect }) {
 
       {/* district ⇄ state toggle — district stays the default view */}
       <button onClick={() => setView((v) => (v === "state" ? "district" : "state"))}
-        style={{ position: "absolute", right: 12, top: 12, fontSize: 11, color: "#9fb0c4",
-          background: "#0d131bdd", border: "1px solid #26333f", borderRadius: 7, padding: "6px 10px", cursor: "pointer" }}>
+        style={{ position: "absolute", right: 12, top: 12, fontSize: 11.5, fontWeight: 600, color: "#c3cfdd",
+          background: "#0d131bdd", border: "1px solid #2f3f52", borderRadius: 8, padding: "7px 11px", cursor: "pointer" }}>
         {view === "state" ? "↩ Back to district" : "Zoom out to Uttarakhand"}
       </button>
 
       {/* legend */}
-      <div style={{ position: "absolute", left: 12, bottom: 12, display: "flex", gap: 12, background: "#0d131bdd",
-        border: "1px solid #1e2836", borderRadius: 8, padding: "7px 11px" }}>
+      <div style={{ position: "absolute", left: 12, bottom: 12, display: "flex", gap: 14, background: "#0d131bdd",
+        border: "1px solid #223041", borderRadius: 9, padding: "8px 12px" }}>
         {RISK_ORDER.map((k) => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9fb0c4" }}>
             <RiskDot level={k} size={8} /> {RISK[k].label}
