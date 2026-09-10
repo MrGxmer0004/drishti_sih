@@ -595,12 +595,13 @@ function WardMap({ wards, selected, onSelect }) {
               onMouseLeave={() => setHovered((h) => (h === w.ward_id ? null : h))}
               style={{ default: { cursor: "pointer" }, hover: { cursor: "pointer" }, pressed: { cursor: "pointer" } }}>
               {pulsing && (
-                <circle r={13} fill={r.dot} opacity={0.22}
+                <circle r={14} fill={r.dot} opacity={0.3}
                   style={{ transformBox: "fill-box", transformOrigin: "center", animation: "drpulse 1.8s ease-out infinite" }} />
               )}
-              {isSel && <circle r={11} fill="none" stroke={r.dot} strokeWidth={2.5} opacity={0.9} />}
-              {isSel && <circle r={14.5} fill="none" stroke="#ffffff22" strokeWidth={2} />}
-              <circle r={6.5} fill={r.dot} stroke="#0a0f18" strokeWidth={1.6} />
+              {isSel && <circle r={12} fill="none" stroke={r.dot} strokeWidth={2.5} opacity={0.95} />}
+              {isSel && <circle r={15.5} fill="none" stroke="#ffffff28" strokeWidth={1.5} />}
+              <circle r={pulsing ? 8 : 7} fill={r.dot} stroke="#0a0f18" strokeWidth={2} />
+              <circle r={pulsing ? 8 : 7} fill="none" stroke="#ffffff30" strokeWidth={1} />
               {labelFor(w)}
             </Marker>
           );
@@ -701,16 +702,20 @@ function ReviewCard({ alert, onApprove, onDismiss }) {
 }
 
 /* ---------- Ward detail drawer ---------------------------------------------- */
-function WardDetail({ wardId, api, sensors }) {
+function WardDetail({ wardId, api, sensors, riskHint }) {
   const [risk, setRisk] = useState(null);
   const [series, setSeries] = useState({});
+  // blank to the loading state only when the ward itself changes…
+  useEffect(() => { setRisk(null); setSeries({}); }, [wardId]);
+  // …but re-fetch risk + telemetry both on ward change and whenever this ward's
+  // live tier moves (riskHint), so escalating the ward you're already viewing
+  // refreshes its badge, signals and charts instead of showing stale data.
   useEffect(() => {
     let alive = true;
-    setRisk(null); setSeries({});
     api.getWardRisk(wardId).then((r) => alive && setRisk(r));
     SENSOR_TYPES.forEach((tp) => api.getHistory(wardId, tp).then((rows) => alive && setSeries((s) => ({ ...s, [tp]: rows }))));
     return () => { alive = false; };
-  }, [wardId, api]);
+  }, [wardId, api, riskHint]);
 
   if (!risk) return <div style={{ color: "#6d7d92", fontSize: 13, padding: 20 }}>Loading ward telemetry…</div>;
   const r = RISK[risk.risk_level];
@@ -921,7 +926,12 @@ export default function App() {
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
   useAudioUnlock(acRef);
-  const onEscalate = useCallback(() => {
+  // On a new critical escalation: jump the detail panel to that ward (so a
+  // judge always sees the ward that's actually happening, with its live
+  // charts) and chime once. A later manual click still wins until the next
+  // escalation.
+  const onEscalate = useCallback((wardId) => {
+    setSelectedWard(wardId);
     if (!mutedRef.current) playChime(acRef);
   }, []);
   useNewCritical(wards, onEscalate);
@@ -929,7 +939,11 @@ export default function App() {
   const pending = alerts.filter((a) => a.status === "pending_veto");
   const review = alerts.filter((a) => a.status === "awaiting_review");
   const counts = RISK_ORDER.reduce((m, k) => ({ ...m, [k]: wards.filter((w) => w.risk === k).length }), {});
-  const detailWard = selectedWard || wards.find((w) => w.risk === "critical")?.ward_id || wards[0]?.ward_id;
+  // default selection follows the highest-severity ward present until the
+  // operator picks one.
+  const bySeverity = [...wards].sort((a, b) => RISK_ORDER.indexOf(b.risk) - RISK_ORDER.indexOf(a.risk));
+  const detailWard = selectedWard || bySeverity[0]?.ward_id || wards[0]?.ward_id;
+  const detailRisk = wards.find((w) => w.ward_id === detailWard)?.risk;
 
   const TabBtn = ({ id, children, badge }) => (
     <button onClick={() => setTab(id)} style={{
@@ -1035,7 +1049,7 @@ export default function App() {
               )}
             </div>
             <div style={{ background: "#0d131b", border: "1px solid #1a232f", borderRadius: 11, padding: 16 }}>
-              {detailWard && <WardDetail wardId={detailWard} api={api} sensors={sensors} />}
+              {detailWard && <WardDetail wardId={detailWard} api={api} sensors={sensors} riskHint={detailRisk} />}
             </div>
           </div>
         )}
