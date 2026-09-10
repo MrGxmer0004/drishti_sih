@@ -348,6 +348,80 @@ const fmtAgo = (iso) => {
 };
 const secondsLeft = (deadline) => Math.max(0, (new Date(deadline).getTime() - Date.now()) / 1000);
 
+/* ---- alert chime ---------------------------------------------------------------
+   A short, quiet two-note sine chime (A5 → D6), synthesised with the Web Audio
+   API so there is no audio asset to license. Deliberately a notification tone,
+   not a siren. Peaks at ~34% gain. Every call is wrapped so a browser blocking
+   autoplay fails silently instead of throwing into the console mid-demo.
+   -------------------------------------------------------------------------- */
+function playChime(acRef) {
+  try {
+    let ac = acRef.current;
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ac = acRef.current = new AC();
+    }
+    if (ac.state === "suspended") ac.resume().catch(() => {});
+    const t0 = ac.currentTime;
+    [[880, 0], [1174.66, 0.13]].forEach(([freq, at]) => {
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, t0 + at);
+      gain.gain.setValueAtTime(0.0001, t0 + at);
+      gain.gain.exponentialRampToValueAtTime(0.34, t0 + at + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.55);
+      osc.connect(gain).connect(ac.destination);
+      osc.start(t0 + at);
+      osc.stop(t0 + at + 0.6);
+    });
+  } catch {
+    /* autoplay policy / no Web Audio — stay silent, never break the demo */
+  }
+}
+
+/* Chime once when any ward transitions INTO critical — a demo scenario firing
+   or a real live escalation. Not replayed while a ward stays critical; re-arms
+   if it drops to a lower tier and escalates again. */
+function useCriticalChime(wards, muted) {
+  const acRef = useRef(null);
+  const prevCriticalRef = useRef(null); // null until the first load is seen
+
+  // unlock the AudioContext on the first user gesture so a later chime can play
+  useEffect(() => {
+    const unlock = () => {
+      try {
+        let ac = acRef.current;
+        if (!ac) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          ac = acRef.current = new AC();
+        }
+        if (ac.state === "suspended") ac.resume().catch(() => {});
+      } catch { /* ignore */ }
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  useEffect(() => {
+    const nowCritical = new Set(wards.filter((w) => w.risk === "critical").map((w) => w.ward_id));
+    const prev = prevCriticalRef.current;
+    prevCriticalRef.current = nowCritical;
+    if (prev === null) return;           // establish the baseline, don't chime on load
+    if (muted) return;
+    const escalated = [...nowCritical].some((id) => !prev.has(id));
+    if (escalated) playChime(acRef);
+  }, [wards, muted]);
+}
+
 /* ============================================================================
    PRESENTATION
    ========================================================================== */
@@ -786,6 +860,8 @@ export default function App() {
   const { wards, sensors, alerts, connected, api } = useDrishtiData();
   const [tab, setTab] = useState("overview");
   const [selectedWard, setSelectedWard] = useState(null);
+  const [muted, setMuted] = useState(false);
+  useCriticalChime(wards, muted);
 
   const pending = alerts.filter((a) => a.status === "pending_veto");
   const review = alerts.filter((a) => a.status === "awaiting_review");
@@ -827,6 +903,12 @@ export default function App() {
             <span style={{ width: 7, height: 7, borderRadius: 999, background: connected ? "#6fd39b" : "#f0a35c" }} />
             {connected ? "Live feed connected" : "Reconnecting…"}
           </span>
+          <button onClick={() => setMuted((m) => !m)} title={muted ? "Alert sound muted" : "Alert sound on"}
+            aria-label={muted ? "Unmute alert sound" : "Mute alert sound"}
+            style={{ fontSize: 13, lineHeight: 1, color: "#9fb0c4", background: "#141c27",
+              border: "1px solid #26333f", borderRadius: 7, padding: "6px 9px", cursor: "pointer" }}>
+            {muted ? "🔇" : "🔊"}
+          </button>
           {!USE_LIVE && (
             <button onClick={() => api.simulate(wards.find((w) => w.risk === "watch")?.ward_id)}
               style={{ fontSize: 11.5, color: "#9fb0c4", background: "#141c27", border: "1px solid #26333f", borderRadius: 7, padding: "6px 11px", cursor: "pointer" }}>
