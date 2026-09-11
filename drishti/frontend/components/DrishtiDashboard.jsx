@@ -109,25 +109,43 @@ const AREA_FILLED_SENSORS = new Set(["rainfall", "water_level"]);
 
 /* ---- shared surface + typography tokens (visual polish) --------------------
    One raised-card treatment and one inset-tile treatment so the layout reads
-   in layers instead of one flat plane. Palette identity is unchanged. */
+   in layers instead of one flat plane. Palette identity is unchanged.
+
+   Depth pass: a flat single-color fill reads as a colored rectangle, not a
+   panel. A very faint top-lighter/bottom-darker gradient plus a 1px inset
+   top highlight (light catching a beveled physical edge) is enough to read
+   as layered glass/metal — restrained, static, no per-element glow. Actual
+   glow is reserved for genuinely live/elevated state (see RISK[].glow and
+   the veto-window treatment below), never applied here. */
 const CARD = {
-  background: "#101E36",
+  background: "linear-gradient(180deg, #142544 0%, #101E36 55%, #0F1C33 100%)",
   border: "1px solid #223354",
   borderRadius: 8,
-  boxShadow: "0 1px 2px rgba(0,0,0,.35), 0 12px 28px -18px rgba(0,0,0,.65)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.05), 0 1px 2px rgba(0,0,0,.35), 0 12px 28px -18px rgba(0,0,0,.65)",
 };
 const TILE = {
-  background: "#0B1729",
+  background: "linear-gradient(180deg, #10203A 0%, #0B1729 70%)",
   border: "1px solid #1A2A47",
   borderRadius: 6,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.035)",
 };
 // small uppercase section label — used to separate content groups
 const KICKER = {
   fontSize: 10.5, fontWeight: 700, letterSpacing: 0.7, textTransform: "uppercase", color: "#5E7396",
 };
-// primary metric number — deliberately much heavier than its label
+// primary metric number — deliberately much heavier than its label. Slightly
+// negative tracking on tabular figures is what reads as "precision
+// instrument" rather than default body-text numerals.
 const STATNUM = {
-  fontSize: 25, fontWeight: 800, color: "#EDF2F9", lineHeight: 1.05, fontVariantNumeric: "tabular-nums",
+  fontSize: 25, fontWeight: 800, color: "#EDF2F9", lineHeight: 1.05,
+  fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em",
+};
+// The single biggest number on a given screen (ward detail's Lead time) gets
+// one more visible step of size/weight than every other stat — reinforced
+// further by the veto countdown's own (larger, monospace) inline style.
+const HERO_NUM = {
+  fontSize: 30, fontWeight: 800, color: "#EDF2F9", lineHeight: 1.05,
+  fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em",
 };
 
 /* ============================================================================
@@ -886,7 +904,8 @@ function VetoCard({ alert, onVeto }) {
 function ReviewCard({ alert, onApprove, onDismiss }) {
   const [reason, setReason] = useState("");
   return (
-    <div style={{ border: "1px solid #5C4A1E", background: "#26200E", borderRadius: 8, padding: 14 }}>
+    <div style={{ border: "1px solid #5C4A1E", background: "linear-gradient(180deg, #2E260F 0%, #26200E 70%)",
+      borderRadius: 8, padding: 14, boxShadow: "inset 0 1px 0 rgba(255,255,255,.04)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "#E7CE8E" }}>{alert.ward_name || alert.ward_id}</div>
         <span style={{ fontSize: 11, color: "#b8ab6a" }}>Confidence {Math.round(alert.confidence * 100)}% · held for review</span>
@@ -1073,7 +1092,7 @@ function WardDetail({ wardId, api, sensors, riskHint, wards }) {
           const noSignal = risk.lead_time_basis === "no_active_signal" || risk.estimated_lead_time_minutes == null;
           return (
             <div style={{ ...TILE, padding: "12px 14px" }}>
-              <div style={{ ...STATNUM, color: noSignal ? "#5E7396" : STATNUM.color }}>
+              <div style={{ ...HERO_NUM, color: noSignal ? "#5E7396" : HERO_NUM.color }}>
                 {noSignal ? "—" : `${risk.estimated_lead_time_minutes} min`}
               </div>
               <div style={{ ...KICKER, marginTop: 5 }}>Lead time</div>
@@ -1276,7 +1295,14 @@ export default function App() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0A1220", color: "#C7D4E5",
+    <div style={{ minHeight: "100vh", color: "#C7D4E5",
+      // Ambient canvas depth: a single static radial gradient (an overhead
+      // light source, not a moving glow) — very slightly lighter near top
+      // center, darker toward the corners. backgroundAttachment keeps it
+      // anchored to the viewport rather than scrolling with content, the
+      // way a room's ambient light doesn't move when you scroll a page.
+      background: "radial-gradient(120% 70% at 50% -8%, #101F38 0%, #0A1220 48%, #070C16 100%)",
+      backgroundAttachment: "fixed",
       fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" }}>
       <style>{`
         @keyframes drpulse { 0% { transform: scale(.6); opacity:.4 } 100% { transform: scale(2.4); opacity:0 } }
