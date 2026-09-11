@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, ReferenceLine,
+  LineChart, Line, Area, ComposedChart, XAxis, YAxis, ResponsiveContainer, Tooltip, ReferenceLine,
 } from "recharts";
 import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
 import { geoMercator } from "d3-geo";
@@ -92,6 +92,20 @@ const STATUS_LABEL = {
 const SENSOR_TYPES = ["rainfall", "soil_moisture", "water_level", "slope_tilt", "temperature"];
 const SENSOR_UNIT = { rainfall: "mm", soil_moisture: "%", water_level: "m", slope_tilt: "°", temperature: "°C" };
 const OPERATOR = OPERATOR_ID;
+
+// Watch/Warning/Critical reference lines for telemetry charts, mirroring the
+// tier thresholds in backend/risk_engine.py (RAINFALL_*_MM, WATER_LEVEL_*_M,
+// SLOPE_TILT_*_DEG). Water level and slope tilt have no WATCH tier in the
+// engine, so they carry two lines, not three — this is display-only and
+// duplicates constants that live canonically in risk_engine.py.
+const TIER_THRESHOLDS = {
+  rainfall:    [{ level: "watch", value: 30 }, { level: "warning", value: 60 }, { level: "critical", value: 100 }],
+  water_level: [{ level: "warning", value: 0.5 }, { level: "critical", value: 1.2 }],
+  slope_tilt:  [{ level: "warning", value: 5 }, { level: "critical", value: 10 }],
+};
+// Sensor types rendered as a gradient-filled area — the two signals where
+// magnitude-under-the-curve reads most intuitively as "rising danger".
+const AREA_FILLED_SENSORS = new Set(["rainfall", "water_level"]);
 
 /* ---- shared surface + typography tokens (visual polish) --------------------
    One raised-card treatment and one inset-tile treatment so the layout reads
@@ -223,13 +237,17 @@ function makeMockBackend() {
         ward_id: id, name: w.name, risk_level: w.risk, confidence: w.confidence,
         estimated_lead_time_minutes: w.lead, evacuation_point: w.evac, glacier_fed: w.glacier,
         lead_time_basis: quiet ? "no_active_signal" : (w.risk === "normal" ? "terrain_baseline" : "trend_projection"),
+        lead_time_driver: quiet || w.risk === "normal" ? null : "rainfall",
+        impact_imminent: false,
         data_completeness: quiet ? 0.0 : id === "WD_1023" ? 0.8 : 1.0,
         stale_sensor_types: quiet ? ["rainfall", "soil_moisture", "water_level", "slope_tilt"]
           : id === "WD_1023" ? ["water_level"] : [],
         // Mirrors the live `model_branch` block from fusion.py. WD_1044 is the
         // glacier ward: the rainfall model correctly sees nothing there, which
         // is the case the fusion layer refuses to penalise.
-        model_branch: w.glacier
+        model_branch: quiet
+          ? { available: false, reason: "no fresh meteo feature vector for this ward" }
+          : w.glacier
           ? { available: true, tier: "NONE", raw_score: 0.0031, threshold: null,
               false_alarm_rate: null, confidence: 0, calibrated: false,
               features_age_minutes: 12, reason: "" }
@@ -797,6 +815,103 @@ function ReviewCard({ alert, onApprove, onDismiss }) {
   );
 }
 
+/* ---------- Telemetry tile — Flood-Hub-style threshold chart -----------------
+   Labeled Watch/Warning/Critical reference lines (not just one "danger" line),
+   a "now" boundary, and a dashed projected segment for whichever signal is
+   actually driving the lead-time estimate. Rainfall and water level render as
+   a gradient-filled area — the two signals where "area under the curve" reads
+   as rising danger most directly; the rest stay plain lines. */
+function TelemetryTile({ tp, sig, data, risk }) {
+  const color = sig ? (RISK[sig.level] || RISK.normal).dot : "#6E85AC";
+  const avail = sig ? sig.available : true;
+  const tiers = TIER_THRESHOLDS[tp];
+  const isDriver = risk.lead_time_driver === tp
+    && risk.lead_time_basis === "trend_projection"
+    && !risk.impact_imminent
+    && risk.estimated_lead_time_minutes != null;
+
+  // Build the chart series: real readings on a genuine time axis (so a
+  // dashed projected segment ends up proportionally sized instead of always
+  // eating one evenly-spaced slot), plus — only for the driving signal with
+  // a real trend projection — one synthetic point at the projected
+  // critical-crossing time so the dashed segment can extend from "now" to it.
+  const chartData = React.useMemo(() => {
+    if (!avail || !data.length) return [];
+    const rows = data.map((p) => ({ ...p, t: new Date(p.t).getTime() }));
+    if (isDriver && tiers) {
+      const critical = tiers.find((t) => t.level === "critical")?.value;
+      const last = rows[rows.length - 1];
+      if (critical != null && last) {
+        rows[rows.length - 1] = { ...last, proj: last.value };
+        const projT = last.t + risk.estimated_lead_time_minutes * 60000;
+        rows.push({ t: projT, value: null, proj: critical, isProjected: true });
+      }
+    }
+    return rows;
+  }, [avail, data, isDriver, tiers, risk.estimated_lead_time_minutes]);
+  const hasProjection = isDriver && chartData.some((r) => r.isProjected);
+  const Chart = AREA_FILLED_SENSORS.has(tp) ? ComposedChart : LineChart;
+
+  return (
+    <div style={{ ...TILE, padding: 12, opacity: avail ? 1 : 0.5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <span style={{ fontSize: 12, color: "#9FB2CE", textTransform: "capitalize" }}>{tp.replace("_", " ")}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: avail ? "#EDF2F9" : "#7C93B3", fontVariantNumeric: "tabular-nums" }}>
+          {avail && data.length ? `${data.at(-1).value}${SENSOR_UNIT[tp]}` : "—"}
+        </span>
+      </div>
+      <div style={{ height: 64, marginTop: 4 }}>
+        {avail && data.length ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <Chart data={chartData} margin={{ top: 6, bottom: 2, left: 0, right: tiers ? 20 : 4 }}>
+              {AREA_FILLED_SENSORS.has(tp) && (
+                <defs>
+                  <linearGradient id={`dr-grad-${tp}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={0.45} />
+                    <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+              )}
+              <Tooltip contentStyle={{ background: "#0B1729", border: "1px solid #2A3F63", borderRadius: 6, fontSize: 11 }}
+                labelStyle={{ display: "none" }}
+                formatter={(v, key) => v == null ? [null, null] : [`${v}${SENSOR_UNIT[tp]}`, key === "proj" ? `${tp} (projected)` : tp]} />
+              {tiers
+                ? tiers.map((t) => (
+                    // Color alone carries the tier (matches the RiskDot/legend
+                    // vocabulary used everywhere else) — a letter prefix would
+                    // collide since Watch and Warning both start with "W".
+                    <ReferenceLine key={t.level} y={t.value} stroke={`${RISK[t.level].dot}88`} strokeDasharray="3 3"
+                      label={{ value: String(t.value), position: "right", fill: RISK[t.level].dot, fontSize: 9, fontWeight: 700 }} />
+                  ))
+                : sig?.threshold != null && <ReferenceLine y={sig.threshold} stroke="#DB4A4255" strokeDasharray="3 3" />}
+              {hasProjection && (
+                <ReferenceLine x={new Date(data[data.length - 1].t).getTime()} stroke="#7C93B355" strokeDasharray="2 2"
+                  label={{ value: "now", position: "insideTopLeft", fill: "#7C93B3", fontSize: 8.5 }} />
+              )}
+              {AREA_FILLED_SENSORS.has(tp) ? (
+                <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.8}
+                  fill={`url(#dr-grad-${tp})`} dot={false} isAnimationActive={false} connectNulls={false} />
+              ) : (
+                <Line type="monotone" dataKey="value" stroke={color} strokeWidth={1.8} dot={false} isAnimationActive={false} />
+              )}
+              {hasProjection && (
+                <Line type="monotone" dataKey="proj" stroke={color} strokeWidth={1.6} strokeDasharray="4 3"
+                  dot={false} isAnimationActive={false} connectNulls />
+              )}
+              <YAxis hide domain={tiers
+                ? [(dataMin) => Math.min(dataMin, tiers[0].value * 0.6), (dataMax) => Math.max(dataMax, tiers[tiers.length - 1].value)]
+                : ["dataMin", "dataMax"]} />
+              <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} scale="time" hide />
+            </Chart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#7C93B3" }}>sensor silent</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Ward detail drawer ---------------------------------------------- */
 function WardDetail({ wardId, api, sensors, riskHint }) {
   const [risk, setRisk] = useState(null);
@@ -900,35 +1015,8 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
           {SENSOR_TYPES.map((tp) => {
             const sig = risk.signals.find((s) => s.name === tp);
-            const color = sig ? (RISK[sig.level] || RISK.normal).dot : "#6E85AC";
             const data = series[tp] || [];
-            const avail = sig ? sig.available : true;
-            return (
-              <div key={tp} style={{ ...TILE, padding: 12, opacity: avail ? 1 : 0.5 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span style={{ fontSize: 12, color: "#9FB2CE", textTransform: "capitalize" }}>{tp.replace("_", " ")}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: avail ? "#EDF2F9" : "#7C93B3", fontVariantNumeric: "tabular-nums" }}>
-                    {avail && data.length ? `${data.at(-1).value}${SENSOR_UNIT[tp]}` : "—"}
-                  </span>
-                </div>
-                <div style={{ height: 54, marginTop: 4 }}>
-                  {avail && data.length ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={data} margin={{ top: 6, bottom: 2, left: 0, right: 0 }}>
-                        <Tooltip contentStyle={{ background: "#0B1729", border: "1px solid #2A3F63", borderRadius: 6, fontSize: 11 }}
-                          labelStyle={{ display: "none" }} formatter={(v) => [`${v}${SENSOR_UNIT[tp]}`, tp]} />
-                        {sig?.threshold != null && <ReferenceLine y={sig.threshold} stroke="#DB4A4255" strokeDasharray="3 3" />}
-                        <Line type="monotone" dataKey="value" stroke={color} strokeWidth={1.8} dot={false} isAnimationActive={false} />
-                        <YAxis hide domain={["dataMin", "dataMax"]} />
-                        <XAxis dataKey="t" hide />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#7C93B3" }}>sensor silent</div>
-                  )}
-                </div>
-              </div>
-            );
+            return <TelemetryTile key={tp} tp={tp} sig={sig} data={data} risk={risk} />;
           })}
         </div>
       </div>
