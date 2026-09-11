@@ -725,15 +725,34 @@ function WardMap({ wards, selected, onSelect }) {
     return <div style={{ ...frame, display: "grid", placeItems: "center", color: "#7C93B3", fontSize: 12 }}>Loading map…</div>;
   }
 
+  // Small lat/long microlabel under the ward name on hover/selection — the
+  // portfolio-dashboard reference's coordinate labels near map pins, reused
+  // here to reinforce the "real scientific instrument" feel from the
+  // navy/saffron identity pass rather than as a literal copy of that layout.
+  const coordFor = (w) => {
+    const lat = Number(w.latitude), lon = Number(w.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? "E" : "W"}`;
+  };
+
   const labelFor = (w) => {
     const isSel = selected === w.ward_id;
     if (!(isSel || hovered === w.ward_id)) return null;
+    const coord = coordFor(w);
     return (
-      <text x={13} y={4} dominantBaseline="middle" style={{
-        fontSize: 11.5, fontWeight: isSel ? 700 : 600,
-        fill: isSel ? "#EDF2F9" : "#c8d4e2", pointerEvents: "none",
-        paintOrder: "stroke", stroke: "#0a0f18", strokeWidth: 4, strokeLinejoin: "round",
-      }}>{w.name}</text>
+      <g pointerEvents="none">
+        <text x={13} y={4} dominantBaseline="middle" style={{
+          fontSize: 11.5, fontWeight: isSel ? 700 : 600,
+          fill: isSel ? "#EDF2F9" : "#c8d4e2",
+          paintOrder: "stroke", stroke: "#0a0f18", strokeWidth: 4, strokeLinejoin: "round",
+        }}>{w.name}</text>
+        {coord && (
+          <text x={13} y={17} dominantBaseline="middle" style={{
+            fontSize: 9, fontWeight: 500, fontVariantNumeric: "tabular-nums",
+            fill: "#8CA0C2", paintOrder: "stroke", stroke: "#0a0f18", strokeWidth: 3.5, strokeLinejoin: "round",
+          }}>{coord}</text>
+        )}
+      </g>
     );
   };
 
