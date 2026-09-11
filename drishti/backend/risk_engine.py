@@ -24,6 +24,11 @@ Anything replacing this function must keep the signature
 `confidence`. The tiering in `alert_dispatch.py` is driven entirely by that
 number; a bare risk level with no confidence dumps every alert into one tier.
 
+A NORMAL ward with zero fresh readings from any expected sensor gets a null
+`estimated_lead_time_minutes` (`lead_time_basis="no_active_signal"`) rather
+than a terrain-baseline number — there is no risk to project a countdown
+toward, so a minute figure there would be fabricated, not conservative.
+
 Current rules (deliberately simple, tune the thresholds as real data
 comes in):
   - Rainfall risk: rainfall accumulated in the last RAINFALL_WINDOW_MINUTES
@@ -132,7 +137,7 @@ class SignalResult:
 class RiskAssessment:
     ward_id: str
     risk_level: RiskLevel
-    estimated_lead_time_minutes: int
+    estimated_lead_time_minutes: Optional[int]
     reasons: List[str]
     confidence: float = 1.0
     confidence_factors: List[str] = field(default_factory=list)
@@ -142,12 +147,15 @@ class RiskAssessment:
     assessed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # --- Lead-time projection (see project_lead_time) ---
-    # `estimated_lead_time_minutes` above is always an int so the alert path
-    # (veto-window sizing) keeps working. These fields say how trustworthy it is.
+    # `estimated_lead_time_minutes` above is None when the ward has no active
+    # risk signal at all (see `no_active_signal` basis below) — the alert path
+    # already treats None as "no veto-window budget to size" (alert_dispatch's
+    # veto_window_seconds), and NORMAL wards never reach that path anyway.
     lead_time_band: Optional[List[int]] = None   # [min, max] from trend uncertainty
     lead_time_driver: Optional[str] = None       # signal the projection is based on
     lead_time_basis: str = "terrain_baseline"    # terrain_baseline | trend_projection
                                                  # | insufficient_history | trend_flat
+                                                 # | no_active_signal
     impact_imminent: bool = False                # driver already past its CRITICAL threshold
 
     # Filled in by fusion.py when the meteo-hydro ML branch has an opinion on
@@ -367,7 +375,7 @@ _LEAD_TIME_CAP_MINUTES = 600
 
 @dataclass
 class LeadTimeEstimate:
-    minutes: int
+    minutes: Optional[int]
     driver: Optional[str] = None
     band: Optional[List[int]] = None
     basis: str = "terrain_baseline"
@@ -559,21 +567,30 @@ def assess_ward_risk(
     if not reasons:
         reasons.append("no elevated signals")
 
-    driver_readings = {
-        "rainfall": rainfall,
-        "water_level": water,
-        "slope_tilt": slope,
-    }.get(driver.name if driver else None, [])
-    lead = project_lead_time(
-        ward_id, driver.name if driver else None, driver_readings, overall, now
-    )
-    if lead.basis == "trend_projection" and not lead.impact_imminent:
-        reasons.append(
-            f"lead time ~{lead.minutes}min (band {lead.band[0]}–{lead.band[1]}min) "
-            f"projected from the {lead.driver} trend"
+    # A ward with no active risk level and zero fresh readings from any expected
+    # sensor has no trend to project and no elevated signal to size a terrain
+    # baseline against — the ward isn't "at some risk with thin history", it is
+    # simply not reporting. Any minute figure here would be fabricated, so
+    # report no lead time at all rather than falling back to terrain_baseline.
+    no_active_signal = overall is RiskLevel.NORMAL and completeness == 0.0
+    if no_active_signal:
+        lead = LeadTimeEstimate(minutes=None, driver=None, basis="no_active_signal")
+    else:
+        driver_readings = {
+            "rainfall": rainfall,
+            "water_level": water,
+            "slope_tilt": slope,
+        }.get(driver.name if driver else None, [])
+        lead = project_lead_time(
+            ward_id, driver.name if driver else None, driver_readings, overall, now
         )
-    elif lead.impact_imminent:
-        reasons.append(f"{lead.driver} is already past its critical threshold — impact imminent")
+        if lead.basis == "trend_projection" and not lead.impact_imminent:
+            reasons.append(
+                f"lead time ~{lead.minutes}min (band {lead.band[0]}–{lead.band[1]}min) "
+                f"projected from the {lead.driver} trend"
+            )
+        elif lead.impact_imminent:
+            reasons.append(f"{lead.driver} is already past its critical threshold — impact imminent")
 
     return RiskAssessment(
         ward_id=ward_id,

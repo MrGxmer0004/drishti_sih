@@ -127,7 +127,9 @@ function makeMockBackend() {
     { ward_id: "WD_1023", name: "Rudraprayag Town",  latitude: 30.2844, longitude: 78.9811, glacier: false, evac: "Govt. Inter College", risk: "critical", confidence: 0.91, lead: 18 },
     { ward_id: "WD_1044", name: "Gaurikund",         latitude: 30.6606, longitude: 79.0209, glacier: true,  evac: "Community Hall, Upper Ridge", risk: "warning", confidence: 0.68, lead: 22 },
     { ward_id: "WD_2011", name: "Sonprayag",         latitude: 30.6280, longitude: 79.0207, glacier: true,  evac: "Helipad Shelter", risk: "watch", confidence: 0.74, lead: 30 },
-    { ward_id: "WD_2087", name: "Ukhimath",          latitude: 30.5147, longitude: 79.0900, glacier: false, evac: "Block Office", risk: "normal", confidence: 0.88, lead: 35 },
+    // Genuinely quiet: every sensor silent, 0% coverage — no active signal to
+    // project a lead time from. See risk_engine.py's `no_active_signal` basis.
+    { ward_id: "WD_2087", name: "Ukhimath",          latitude: 30.5147, longitude: 79.0900, glacier: false, evac: "Block Office", risk: "normal", confidence: 0.35, lead: null },
     { ward_id: "WD_3009", name: "Chandrapuri",       latitude: 30.3670, longitude: 78.9880, glacier: false, evac: "Riverside School (high block)", risk: "normal", confidence: 0.83, lead: 28 },
     { ward_id: "WD_3044", name: "Tilwara",           latitude: 30.2430, longitude: 78.9560, glacier: false, evac: "Mandi Ground", risk: "watch", confidence: 0.61, lead: 26 },
   ];
@@ -156,8 +158,9 @@ function makeMockBackend() {
   const sensors = [];
   wards.forEach((w, wi) => {
     SENSOR_TYPES.forEach((tp, ti) => {
-      // simulate a couple of silent sensors (destroyed / offline)
-      const silent = (wi === 0 && tp === "water_level") || (wi === 2 && tp === "slope_tilt");
+      // simulate a couple of silent sensors (destroyed / offline), plus one
+      // ward (Ukhimath) that has gone fully dark — every sensor silent
+      const silent = (wi === 0 && tp === "water_level") || (wi === 2 && tp === "slope_tilt") || wi === 3;
       sensors.push({
         sensor_id: `SNS_${100 + wi * 10 + ti}`,
         ward_id: w.ward_id, ward_name: w.name, type: tp,
@@ -213,13 +216,16 @@ function makeMockBackend() {
     async getWardRisk(id) {
       const w = wards.find((x) => x.ward_id === id);
       const hist = series[id];
+      const quiet = id === "WD_2087"; // fully dark ward — no active signal
       const signal = (name, level, value, threshold, available = true) =>
-        ({ name, level, value, threshold, samples: 6, anomalous_samples: 0, available, detail: "" });
+        ({ name, level, value, threshold, samples: 6, anomalous_samples: 0, available: quiet ? false : available, detail: "" });
       return {
         ward_id: id, name: w.name, risk_level: w.risk, confidence: w.confidence,
         estimated_lead_time_minutes: w.lead, evacuation_point: w.evac, glacier_fed: w.glacier,
-        data_completeness: id === "WD_1023" ? 0.8 : 1.0,
-        stale_sensor_types: id === "WD_1023" ? ["water_level"] : [],
+        lead_time_basis: quiet ? "no_active_signal" : (w.risk === "normal" ? "terrain_baseline" : "trend_projection"),
+        data_completeness: quiet ? 0.0 : id === "WD_1023" ? 0.8 : 1.0,
+        stale_sensor_types: quiet ? ["rainfall", "soil_moisture", "water_level", "slope_tilt"]
+          : id === "WD_1023" ? ["water_level"] : [],
         // Mirrors the live `model_branch` block from fusion.py. WD_1044 is the
         // glacier ward: the rainfall model correctly sees nothing there, which
         // is the case the fusion layer refuses to penalise.
@@ -235,13 +241,17 @@ function makeMockBackend() {
               calibrated: false, features_age_minutes: 8, reason: "" },
         reasons: w.risk === "critical"
           ? ["rainfall accumulation critical", "soil saturation amplifying rainfall risk", "water level rising fast"]
+          : quiet ? ["no elevated signals", "no fresh data from: rainfall, soil_moisture, water_level, slope_tilt"]
+          : w.risk === "normal" ? ["no elevated signals"]
           : w.glacier ? ["sustained glacier-melt temperature signal (FFGS blind spot)", "rainfall watch"]
           : ["rainfall watch"],
-        confidence_factors: [
-          `${Math.round((id === "WD_1023" ? 0.8 : 1) * 100)}% sensor coverage`,
-          "multiple corroborating signals",
-          w.glacier ? "glacier-fed ward — melt signal weighted" : "terrain baseline nominal",
-        ],
+        confidence_factors: quiet
+          ? ["base +0.35", "0% sensor coverage +0.00", "no reporting sensors — nothing to corroborate"]
+          : [
+              `${Math.round((id === "WD_1023" ? 0.8 : 1) * 100)}% sensor coverage`,
+              "multiple corroborating signals",
+              w.glacier ? "glacier-fed ward — melt signal weighted" : "terrain baseline nominal",
+            ],
         signals: [
           signal("rainfall", w.risk, hist.rainfall.at(-1).value, 100),
           signal("soil_moisture", w.risk === "critical" ? "warning" : "watch", hist.soil_moisture.at(-1).value, 80),
@@ -823,12 +833,15 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
         {[
           { k: "Confidence", v: `${Math.round(risk.confidence * 100)}%` },
-          { k: "Lead time", v: `${risk.estimated_lead_time_minutes} min` },
+          risk.lead_time_basis === "no_active_signal" || risk.estimated_lead_time_minutes == null
+            ? { k: "Lead time", v: "—", caption: "no active risk signal" }
+            : { k: "Lead time", v: `${risk.estimated_lead_time_minutes} min` },
           { k: "Sensor coverage", v: `${Math.round(risk.data_completeness * 100)}%` },
         ].map((m) => (
           <div key={m.k} style={{ ...TILE, padding: "12px 14px" }}>
-            <div style={STATNUM}>{m.v}</div>
+            <div style={{ ...STATNUM, color: m.caption ? "#5E7396" : STATNUM.color }}>{m.v}</div>
             <div style={{ ...KICKER, marginTop: 5 }}>{m.k}</div>
+            {m.caption && <div style={{ fontSize: 10.5, color: "#5E7396", marginTop: 3 }}>{m.caption}</div>}
           </div>
         ))}
       </div>
