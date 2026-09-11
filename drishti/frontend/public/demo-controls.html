@@ -3,66 +3,72 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="/icon.svg" type="image/svg+xml" />
 <title>DRISHTI — Demo Controls</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 40px 24px;
-    background: #0a0e14; color: #c3cfdd;
+    margin: 0; padding: 0 24px 40px;
+    background: #0A1220; color: #C7D4E5;
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
+  .topbar { height: 3px; margin: 0 -24px 40px; background: #C77D26; }
   .wrap { max-width: 720px; margin: 0 auto; }
   .panel {
-    background: #121a26;
-    border: 1px solid #24334a;
-    border-left: 3px solid #f0a35c;
+    background: #101E36;
+    border: 1px solid #223354;
+    border-left: 3px solid #D9822F;
     border-radius: 14px;
     box-shadow: 0 1px 2px rgba(0,0,0,.35), 0 22px 54px -26px rgba(0,0,0,.7);
     padding: 24px;
   }
   .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  h1 { font-size: 15px; margin: 0; color: #eef3f9; letter-spacing: .4px; font-weight: 700; }
+  h1 {
+    font: 700 17px/1.2 Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    margin: 0; color: #EDF2F9; letter-spacing: .3px;
+  }
   .pill {
     font-size: 10px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase;
-    color: #f0a35c; background: #241608; border: 1px solid #8a5320;
+    color: #D9822F; background: #2A1C0F; border: 1px solid #7A4A1E;
     border-radius: 999px; padding: 3px 9px;
   }
-  .sub { font-size: 12px; color: #8496ab; margin: 10px 0 18px; }
+  .sub { font-size: 12px; color: #8CA0C2; margin: 10px 0 18px; }
   label {
     display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
-    text-transform: uppercase; color: #6a7c92; margin: 14px 0 6px;
+    text-transform: uppercase; color: #5E7396; margin: 14px 0 6px;
   }
   input[type=text] {
-    width: 100%; background: #0e151f; border: 1px solid #24334a; color: #e8eef6;
+    width: 100%; background: #0B1729; border: 1px solid #223354; color: #EDF2F9;
     border-radius: 9px; padding: 9px 11px; font: inherit; outline: none;
   }
-  input[type=text]:focus { border-color: #3a5f86; }
+  input[type=text]:focus { border-color: #9C5F1B; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   button {
     flex: 1 1 auto; min-width: 150px;
-    background: #0e151f; color: #cdd9e6; border: 1px solid #26333f;
+    background: #0B1729; color: #D6E0EE; border: 1px solid #2A3F63;
     border-radius: 9px; padding: 11px 14px; font: 600 13px inherit; cursor: pointer;
     box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: background .12s, border-color .12s;
   }
-  button:hover { background: #17212e; border-color: #33465b; }
-  button.reset { border-color: #5c4f1c; color: #ecdfa6; background: #1b1708; }
-  button.reset:hover { background: #241f0c; }
-  button.danger { border-color: #7d2b2b; color: #ff8a7a; }
+  button:hover { background: #142544; border-color: #2A3F63; }
+  button.reset { border-color: #5C4A1E; color: #E7CE8E; background: #241C0A; }
+  button.reset:hover { background: #2E2610; }
+  button.danger { border-color: #6E2B2A; color: #F0958D; }
   button:disabled { opacity: .5; cursor: wait; }
   .out {
-    margin-top: 18px; background: #0b1119; border: 1px solid #1f2c3d;
+    margin-top: 18px; background: #0B1729; border: 1px solid #1A2A47;
     border-radius: 10px; padding: 13px; font: 12px/1.45 ui-monospace, monospace;
-    white-space: pre-wrap; word-break: break-word; min-height: 40px; color: #9fb0c4;
+    white-space: pre-wrap; word-break: break-word; min-height: 40px; color: #8CA0C2;
   }
   .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
-  .dot { width: 8px; height: 8px; border-radius: 999px; background: #6d7d92; }
-  .dot.ok { background: #6fd39b; } .dot.bad { background: #ff5647; } .dot.wait { background: #f0a35c; }
-  a { color: #6fb4f0; }
-  footer { margin-top: 16px; padding-top: 14px; border-top: 1px solid #1c2635; font-size: 11px; color: #6a7c92; }
+  .dot { width: 8px; height: 8px; border-radius: 999px; background: #7C93B3; }
+  .dot.ok { background: #3FA179; } .dot.bad { background: #DB4A42; } .dot.wait { background: #D9822F; }
+  a { color: #8FB8E8; }
+  footer { margin-top: 16px; padding-top: 14px; border-top: 1px solid #1B2C4C; font-size: 11px; color: #5E7396; }
 </style>
 </head>
 <body>
+<div class="topbar"></div>
 <div class="wrap">
   <div class="panel">
     <div class="head">
