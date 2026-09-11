@@ -424,6 +424,15 @@ const fmtAgo = (iso) => {
   return `${Math.round(s / 3600)}h ago`;
 };
 const secondsLeft = (deadline) => Math.max(0, (new Date(deadline).getTime() - Date.now()) / 1000);
+// Digital-countdown formatting (mm:ss, or h:mm:ss past an hour) — the
+// instrument-panel treatment modelled on the satellite-ops reference
+// dashboard's "Alert · Collision · 2h 30m 13s" countdown.
+const fmtCountdown = (totalSeconds) => {
+  const s = Math.max(0, Math.ceil(totalSeconds));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+};
 
 /* ---- alert chime ---------------------------------------------------------------
    A short rising three-note sine chime (G5 → C6 → E6), synthesised with the Web
@@ -551,6 +560,68 @@ function ChevronLeftIcon({ size = 12 }) {
     </svg>
   );
 }
+
+/* Small original glyphs for the icon-forward stat-strip cards (Apricot-style
+   "colored icon chip + big number" pattern) — bundled inline SVG, not a font,
+   so the app stays fully functional offline. One glyph per risk tier plus a
+   stopwatch for the veto-window count. */
+function TierGlyph({ level, size = 15 }) {
+  const common = { width: size, height: size, viewBox: "0 0 20 20", fill: "none", "aria-hidden": true };
+  if (level === "critical" || level === "warning") {
+    return (
+      <svg {...common}>
+        <path d="M10 3.4 17.6 16.5H2.4L10 3.4Z" stroke="currentColor" strokeWidth={level === "critical" ? 2 : 1.6} strokeLinejoin="round" />
+        <path d="M10 8.6v3.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="10" cy="14.4" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (level === "watch") {
+    return (
+      <svg {...common}>
+        <circle cx="10" cy="10" r="6.6" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M10 6.6v3.8l2.6 1.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  // normal — quiet confirmation, not an empty state
+  return (
+    <svg {...common}>
+      <circle cx="10" cy="10" r="6.6" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M6.8 10.2l2.1 2.1 4.3-4.6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function StopwatchIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M7.6 2.6h4.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="10" cy="11.4" r="6.6" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M10 7.6v3.8l2.4 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14.4 4.4l1.3 1.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/* Compact radial-gauge ring for percentage stats (Confidence, Sensor
+   coverage) — an instrument-panel treatment borrowed from the NASA/
+   satellite-ops reference dashboards' arc/donut gauges. Plain SVG, no
+   charting library, so it stays cheap to mount inside a small stat tile. */
+function ArcGauge({ pct, size = 52, stroke = 5, color = "#3FA179", track = "#1A2A47" }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(1, pct || 0));
+  const dash = c * clamped;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block", flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        strokeDasharray={`${dash} ${c - dash}`} strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: "stroke-dasharray .4s ease" }} />
+    </svg>
+  );
+}
+const gaugeColor = (pct) => (pct >= 0.7 ? "#3FA179" : pct >= 0.4 ? "#D9AE45" : "#DB4A42");
 
 function RiskDot({ level, size = 10 }) {
   const r = RISK[level] || RISK.normal;
@@ -760,10 +831,14 @@ function VetoCard({ alert, onVeto }) {
           <div style={{ fontSize: 11.5, color: "#b79a86", marginTop: 2 }}>Auto-sends unless cancelled · {TIER[alert.tier].label}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: urgent ? "#E8635A" : "#D9822F", fontVariantNumeric: "tabular-nums" }}>
-            {Math.ceil(left)}s
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase",
+            color: urgent ? "#E8635A" : "#c79a6e" }}>Auto-broadcast in</div>
+          <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.15, marginTop: 2,
+            color: urgent ? "#E8635A" : "#D9822F", fontVariantNumeric: "tabular-nums",
+            fontFamily: "ui-monospace, 'SF Mono', 'Roboto Mono', monospace",
+            textShadow: urgent ? "0 0 14px #DB4A4255" : "none" }}>
+            {fmtCountdown(left)}
           </div>
-          <div style={{ fontSize: 10, color: "#b79a86", marginTop: 2 }}>until broadcast</div>
         </div>
       </div>
 
@@ -913,7 +988,7 @@ function TelemetryTile({ tp, sig, data, risk }) {
 }
 
 /* ---------- Ward detail drawer ---------------------------------------------- */
-function WardDetail({ wardId, api, sensors, riskHint }) {
+function WardDetail({ wardId, api, sensors, riskHint, wards }) {
   const [risk, setRisk] = useState(null);
   const [series, setSeries] = useState({});
   // blank to the loading state only when the ward itself changes…
@@ -931,34 +1006,73 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
   if (!risk) return <div style={{ color: "#7C93B3", fontSize: 13, padding: 20 }}>Loading ward telemetry…</div>;
   const r = RISK[risk.risk_level];
   const wardSensors = sensors.filter((s) => s.ward_id === wardId);
+  const wardRow = wards?.find((w) => w.ward_id === wardId);
+  const wardMeta = wardRow ? { _lat: Number(wardRow.latitude), _lon: Number(wardRow.longitude) } : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
-        <div>
-          <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: "#EDF2F9", letterSpacing: 0.2 }}>{risk.name || wardId}</div>
-          <div style={{ fontSize: 12, color: "#5E7396", marginTop: 4 }}>
-            {wardId}{risk.glacier_fed ? " · glacier-fed" : ""} · evacuate to {risk.evacuation_point}
-          </div>
-        </div>
+        <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: "#EDF2F9", letterSpacing: 0.2 }}>{risk.name || wardId}</div>
         <RiskBadge level={risk.risk_level} />
       </div>
 
-      {/* headline metrics */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+      {/* ward information — dense label/value grid, modelled on Flood Hub's
+          "gauge information" card rather than one run-on subtitle line */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 20px", padding: "10px 12px",
+        background: "#0B1729", border: "1px solid #1A2A47", borderRadius: 6 }}>
         {[
-          { k: "Confidence", v: `${Math.round(risk.confidence * 100)}%` },
-          risk.lead_time_basis === "no_active_signal" || risk.estimated_lead_time_minutes == null
-            ? { k: "Lead time", v: "—", caption: "no active risk signal" }
-            : { k: "Lead time", v: `${risk.estimated_lead_time_minutes} min` },
-          { k: "Sensor coverage", v: `${Math.round(risk.data_completeness * 100)}%` },
-        ].map((m) => (
-          <div key={m.k} style={{ ...TILE, padding: "12px 14px" }}>
-            <div style={{ ...STATNUM, color: m.caption ? "#5E7396" : STATNUM.color }}>{m.v}</div>
-            <div style={{ ...KICKER, marginTop: 5 }}>{m.k}</div>
-            {m.caption && <div style={{ fontSize: 10.5, color: "#5E7396", marginTop: 3 }}>{m.caption}</div>}
+          ["Ward ID", wardId],
+          ["Evacuation point", risk.evacuation_point],
+          ["Terrain", risk.glacier_fed ? "Glacier-fed catchment" : "River-valley catchment"],
+          wardMeta && Number.isFinite(wardMeta._lat)
+            ? ["Coordinates", `${Math.abs(wardMeta._lat).toFixed(4)}°${wardMeta._lat >= 0 ? "N" : "S"}, ${Math.abs(wardMeta._lon).toFixed(4)}°${wardMeta._lon >= 0 ? "E" : "W"}`]
+            : null,
+        ].filter(Boolean).map(([k, v]) => (
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, padding: "3px 0" }}>
+            <span style={{ color: "#5E7396" }}>{k}</span>
+            <span style={{ color: "#C7D4E5", fontWeight: 600, textAlign: "right" }}>{v}</span>
           </div>
         ))}
+      </div>
+
+      {/* headline metrics — Confidence and Sensor coverage get an
+          instrument-panel arc gauge (NASA/satellite-ops reference); Lead
+          time stays a plain figure since a duration isn't a fraction-of-100 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+        <div style={{ ...TILE, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ position: "relative", width: 52, height: 52 }}>
+            <ArcGauge pct={risk.confidence} color={gaugeColor(risk.confidence)} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, fontWeight: 800, color: "#EDF2F9", fontVariantNumeric: "tabular-nums" }}>
+              {Math.round(risk.confidence * 100)}
+            </div>
+          </div>
+          <div style={KICKER}>Confidence</div>
+        </div>
+
+        {(() => {
+          const noSignal = risk.lead_time_basis === "no_active_signal" || risk.estimated_lead_time_minutes == null;
+          return (
+            <div style={{ ...TILE, padding: "12px 14px" }}>
+              <div style={{ ...STATNUM, color: noSignal ? "#5E7396" : STATNUM.color }}>
+                {noSignal ? "—" : `${risk.estimated_lead_time_minutes} min`}
+              </div>
+              <div style={{ ...KICKER, marginTop: 5 }}>Lead time</div>
+              {noSignal && <div style={{ fontSize: 10.5, color: "#5E7396", marginTop: 3 }}>no active risk signal</div>}
+            </div>
+          );
+        })()}
+
+        <div style={{ ...TILE, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ position: "relative", width: 52, height: 52 }}>
+            <ArcGauge pct={risk.data_completeness} color={gaugeColor(risk.data_completeness)} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, fontWeight: 800, color: "#EDF2F9", fontVariantNumeric: "tabular-nums" }}>
+              {Math.round(risk.data_completeness * 100)}
+            </div>
+          </div>
+          <div style={KICKER}>Sensor coverage</div>
+        </div>
       </div>
 
       {risk.stale_sensor_types?.length > 0 && (
@@ -1202,7 +1316,9 @@ export default function App() {
         </div>
       </header>
 
-      {/* status strip */}
+      {/* status strip — icon-forward stat cards (Apricot admin-template
+          pattern): a colored icon chip alongside the number, not just a
+          color dot, so each card reads at a glance even in a quick scan */}
       <div style={{ display: "flex", gap: 10, padding: "14px 20px", borderBottom: "1px solid #17233C", flexWrap: "wrap" }}>
         {RISK_ORDER.slice().reverse().map((k) => {
           const active = counts[k] && (k === "critical" || k === "warning");
@@ -1210,7 +1326,10 @@ export default function App() {
             <div key={k} style={{ ...TILE, display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", minWidth: 132,
               border: `1px solid ${active ? RISK[k].ring : "#1A2A47"}`,
               boxShadow: active ? `0 0 0 1px ${RISK[k].ring}55, 0 8px 22px -14px ${RISK[k].dot}55` : "none" }}>
-              <RiskDot level={k} />
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: RISK[k].bg, border: `1px solid ${RISK[k].ring}`,
+                display: "flex", alignItems: "center", justifyContent: "center", color: RISK[k].dot, flexShrink: 0 }}>
+                <TierGlyph level={k} size={16} />
+              </div>
               <div>
                 <div style={{ ...STATNUM, fontSize: 21 }}>{counts[k] || 0}</div>
                 <div style={{ ...KICKER, marginTop: 3 }}>{RISK[k].label} wards</div>
@@ -1223,6 +1342,11 @@ export default function App() {
           background: pending.length ? "#241a0e" : TILE.background,
           border: `1px solid ${pending.length ? "#7A4A1E" : "#1A2A47"}`,
           boxShadow: pending.length ? "0 0 0 1px #D9822F33, 0 8px 22px -14px #D9822F55" : "none" }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8,
+            background: pending.length ? "#3a2a14" : "#132038", border: `1px solid ${pending.length ? "#7A4A1E" : "#2A3E60"}`,
+            display: "flex", alignItems: "center", justifyContent: "center", color: pending.length ? "#ECA85C" : "#6E85AC", flexShrink: 0 }}>
+            <StopwatchIcon size={16} />
+          </div>
           <div>
             <div style={{ ...STATNUM, fontSize: 21, color: pending.length ? "#ECA85C" : "#EDF2F9" }}>{pending.length}</div>
             <div style={{ ...KICKER, marginTop: 3, color: pending.length ? "#c79a6e" : KICKER.color }}>veto windows open</div>
@@ -1264,7 +1388,7 @@ export default function App() {
               boxShadow: detailRisk === "critical"
                 ? "0 0 0 1px #6E2B2A, 0 16px 40px -20px #DB4A4233"
                 : CARD.boxShadow }}>
-              {detailWard && <WardDetail wardId={detailWard} api={api} sensors={sensors} riskHint={detailRisk} />}
+              {detailWard && <WardDetail wardId={detailWard} api={api} sensors={sensors} riskHint={detailRisk} wards={wards} />}
             </div>
           </div>
         )}
