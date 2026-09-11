@@ -736,6 +736,21 @@ function WardMap({ wards, selected, onSelect }) {
     return geoMercator().fitExtent([[24, 24], [MAP_W - 24, MAP_H - 24]], boxPoints(box));
   }, [view, markers]);
 
+  // Pixel-space centroid of the ward markers — used to center the district's
+  // terrain-shading gradient and the faint vignette glow ON the cluster
+  // itself (not just the polygon's own bounding box), so the eye is drawn to
+  // where the wards actually are rather than the district shape's centroid.
+  const clusterCenterPx = useMemo(() => {
+    const pts = markers
+      .map((w) => projection([w._lon, w._lat]))
+      .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    if (!pts.length) return [MAP_W / 2, MAP_H / 2];
+    return [
+      pts.reduce((s, p) => s + p[0], 0) / pts.length,
+      pts.reduce((s, p) => s + p[1], 0) / pts.length,
+    ];
+  }, [markers, projection]);
+
   const frame = {
     position: "relative", width: "100%", aspectRatio: `${MAP_W} / ${MAP_H}`,
     minHeight: 360, borderRadius: 8, overflow: "hidden",
@@ -781,6 +796,26 @@ function WardMap({ wards, selected, onSelect }) {
   return (
     <div style={frame}>
       <ComposableMap projection={projection} width={MAP_W} height={MAP_H} style={{ width: "100%", height: "100%" }}>
+        {/* Terrain-style shading for the home district: a static radial
+            gradient centered on the actual ward cluster (not the polygon's
+            bounding box) — lighter near the wards, darker toward the district
+            edge, so the shape reads as terrain rather than a flat fill. The
+            vignette circle layered after it is the same idea applied above
+            the polygon boundary, drawing the eye to the cluster on load. */}
+        <defs>
+          <radialGradient id="dr-terrain" gradientUnits="userSpaceOnUse"
+            cx={clusterCenterPx[0]} cy={clusterCenterPx[1]} r={view === "state" ? 90 : 230}>
+            <stop offset="0%" stopColor="#33526f" />
+            <stop offset="55%" stopColor="#25384f" />
+            <stop offset="100%" stopColor="#1b2a3c" />
+          </radialGradient>
+          <radialGradient id="dr-cluster-vignette" gradientUnits="userSpaceOnUse"
+            cx={clusterCenterPx[0]} cy={clusterCenterPx[1]} r={view === "state" ? 70 : 190}>
+            <stop offset="0%" stopColor="#7FA8D9" stopOpacity="0.10" />
+            <stop offset="60%" stopColor="#7FA8D9" stopOpacity="0.03" />
+            <stop offset="100%" stopColor="#7FA8D9" stopOpacity="0" />
+          </radialGradient>
+        </defs>
         {/* base — all-India states, Uttarakhand lifted out of the backdrop */}
         <Geographies geography={STATES_URL}>
           {({ geographies }) => geographies.map((geo) => {
@@ -800,13 +835,16 @@ function WardMap({ wards, selected, onSelect }) {
             const home = geo.properties.district === HOME_DISTRICT;
             return (
               <Geography key={geo.rsmKey} geography={geo}
-                fill={home ? "#25384f" : "transparent"}
+                fill={home ? "url(#dr-terrain)" : "transparent"}
                 stroke={home ? "#63799680" : "#3c4e6480"}
                 strokeWidth={home ? 1.2 : 0.7}
                 style={{ default: { outline: "none" }, hover: { outline: "none" }, pressed: { outline: "none" } }} />
             );
           })}
         </Geographies>
+        {/* faint static vignette over the cluster — not an animated glow */}
+        <circle cx={clusterCenterPx[0]} cy={clusterCenterPx[1]} r={view === "state" ? 70 : 190}
+          fill="url(#dr-cluster-vignette)" pointerEvents="none" />
 
         {markers.map((w) => {
           const r = RISK[w.risk] || RISK.normal;
