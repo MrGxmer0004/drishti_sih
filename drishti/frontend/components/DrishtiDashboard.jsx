@@ -69,11 +69,15 @@ const COLOR = {
 const SERIF = "Georgia, 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Times New Roman', serif";
 
 /* ---- risk + tier vocabulary (mirrors schemas.py) ---------------------------- */
+// `glow` is a soft outer box-shadow, escalating with severity — reserved for
+// genuinely elevated/live state (a selected ward's own detail panel), never
+// applied to a merely-listed or normal-state element. Normal carries none:
+// glow means "this is live and elevated," not "this is a card."
 const RISK = {
-  normal:   { label: "Normal",   fg: "#9FB2CE", bg: "#132038", ring: "#2A3E60", dot: "#6E85AC" },
-  watch:    { label: "Watch",    fg: "#D9AE45", bg: "#26200E", ring: "#5C4A1E", dot: "#D9AE45" },
-  warning:  { label: "Warning",  fg: "#E28F4E", bg: "#2A1C0F", ring: "#6B4420", dot: "#E28F4E" },
-  critical: { label: "Critical", fg: "#E8635A", bg: "#301418", ring: "#6E2B2A", dot: "#DB4A42" },
+  normal:   { label: "Normal",   fg: "#9FB2CE", bg: "#132038", ring: "#2A3E60", dot: "#6E85AC", glow: "none" },
+  watch:    { label: "Watch",    fg: "#D9AE45", bg: "#26200E", ring: "#5C4A1E", dot: "#D9AE45", glow: "0 0 34px -14px #D9AE4599" },
+  warning:  { label: "Warning",  fg: "#E28F4E", bg: "#2A1C0F", ring: "#6B4420", dot: "#E28F4E", glow: "0 0 38px -12px #E28F4EAA" },
+  critical: { label: "Critical", fg: "#E8635A", bg: "#301418", ring: "#6E2B2A", dot: "#DB4A42", glow: "0 0 46px -8px #DB4A42AA" },
 };
 const RISK_ORDER = ["normal", "watch", "warning", "critical"];
 
@@ -860,8 +864,15 @@ function VetoCard({ alert, onVeto }) {
   const urgent = left <= 10;
 
   return (
-    <div style={{ border: `1px solid ${urgent ? "#6E2B2A" : "#6B4420"}`, background: urgent ? "#2C1315" : "#2A1C0F",
-      borderRadius: 8, padding: 14, boxShadow: urgent ? "0 0 0 1px #DB4A4233" : "none" }}>
+    <div style={{ border: `1px solid ${urgent ? "#6E2B2A" : "#6B4420"}`,
+      background: urgent ? "linear-gradient(180deg, #331619 0%, #2C1315 70%)" : "linear-gradient(180deg, #302013 0%, #2A1C0F 70%)",
+      borderRadius: 8, padding: 14,
+      // A live veto window is, by definition, an urgent/live element — it
+      // always carries some ambient glow (escalating as the deadline nears),
+      // unlike a static tile which carries none.
+      boxShadow: urgent
+        ? "inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 1px #DB4A4233, 0 0 46px -14px #DB4A42AA"
+        : "inset 0 1px 0 rgba(255,255,255,.04), 0 0 0 1px #D9822F22, 0 0 36px -16px #D9822F88" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#f4d9c0" }}>{alert.ward_name || alert.ward_id}</div>
@@ -870,10 +881,10 @@ function VetoCard({ alert, onVeto }) {
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase",
             color: urgent ? "#E8635A" : "#c79a6e" }}>Auto-broadcast in</div>
-          <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.15, marginTop: 2,
+          <div style={{ fontSize: 37, fontWeight: 800, lineHeight: 1.15, marginTop: 2, letterSpacing: "-0.02em",
             color: urgent ? "#E8635A" : "#D9822F", fontVariantNumeric: "tabular-nums",
             fontFamily: "ui-monospace, 'SF Mono', 'Roboto Mono', monospace",
-            textShadow: urgent ? "0 0 14px #DB4A4255" : "none" }}>
+            textShadow: urgent ? "0 0 20px #DB4A4266" : "0 0 16px #D9822F44" }}>
             {fmtCountdown(left)}
           </div>
         </div>
@@ -1413,8 +1424,10 @@ export default function App() {
               <div style={KICKER}>Situational overview — select a ward for detail</div>
               <WardMap wards={wards} selected={detailWard} onSelect={(id) => { setSelectedWard(id); }} />
               {pending.length > 0 && (
-                <div style={{ background: "#241608", border: "1px solid #7A4A1E", borderLeft: "3px solid #D9822F",
-                  borderRadius: 8, padding: 16, boxShadow: "0 0 0 1px #D9822F22, 0 14px 34px -16px #D9822F40" }}>
+                <div style={{ background: "linear-gradient(180deg, #2A190B 0%, #241608 70%)",
+                  border: "1px solid #7A4A1E", borderLeft: "3px solid #D9822F",
+                  borderRadius: 8, padding: 16,
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,.04), 0 0 0 1px #D9822F22, 0 0 50px -20px #D9822F77, 0 14px 34px -16px #D9822F40" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 999, background: "#D9822F",
                       boxShadow: "0 0 0 4px #D9822F22", animation: "drpulse 1.8s ease-out infinite" }} />
@@ -1430,8 +1443,13 @@ export default function App() {
             </div>
             <div style={{ ...CARD, padding: 18,
               border: `1px solid ${detailRisk && RISK[detailRisk] ? RISK[detailRisk].ring : CARD.border.split(" ").pop()}`,
-              boxShadow: detailRisk === "critical"
-                ? "0 0 0 1px #6E2B2A, 0 16px 40px -20px #DB4A4233"
+              // Selected ward's own panel gets a soft tier-colored glow, scaled
+              // by severity — the one place a "this is live" glow belongs,
+              // since it's the ward currently being watched. Normal carries
+              // none (RISK.normal.glow === "none"), same base depth as any
+              // other panel.
+              boxShadow: detailRisk && RISK[detailRisk] && RISK[detailRisk].glow !== "none"
+                ? `${RISK[detailRisk].glow}, ${CARD.boxShadow}`
                 : CARD.boxShadow }}>
               {detailWard && <WardDetail wardId={detailWard} api={api} sensors={sensors} riskHint={detailRisk} wards={wards} />}
             </div>
