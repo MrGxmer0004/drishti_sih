@@ -42,19 +42,45 @@ const WS_BASE = API_BASE.replace(/^http/, "ws");
 const USE_LIVE = API_BASE.length > 0;
 const OPERATOR_ID = process.env.NEXT_PUBLIC_OPERATOR_ID || "ops.sdma.demo";
 
+/* ==============================================================================
+   DESIGN SYSTEM — "official instrument" identity
+   ------------------------------------------------------------------------------
+   A deep navy-indigo base (an operations-room instrument, not a generic dark
+   SaaS theme). Saffron is formal chrome — a masthead rule, a badge border —
+   used sparingly and never as a fill. Green is a tertiary/all-clear accent.
+   Risk-tier colors are deepened/desaturated to sit against navy without
+   turning neon; they remain the one place color still carries an operational
+   meaning, so their hue relationships to red/amber/yellow/gray are preserved.
+   ============================================================================== */
+const COLOR = {
+  bg: "#0A1220",           // page canvas
+  header: "#0B1830",       // masthead surface — one step up from the canvas
+  saffron: "#C77D26",      // formal accent: rules, badges, the wordmark mark — never a fill
+  saffronDeep: "#9C5F1B",
+  green: "#256D4E",        // tertiary / all-clear accent
+  greenDeep: "#1B4F3A",
+  textPrimary: "#EDF2F9",
+  textSecondary: "#8CA0C2",
+  textTertiary: "#5E7396",
+};
+// Masthead / display serif — a system-safe stack, not a hosted webfont. Used
+// sparingly (the wordmark, large ward-name headings) so the app keeps working
+// fully offline, the same guarantee the bundled map data relies on.
+const SERIF = "Georgia, 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Times New Roman', serif";
+
 /* ---- risk + tier vocabulary (mirrors schemas.py) ---------------------------- */
 const RISK = {
-  normal:   { label: "Normal",   fg: "#7c8aa0", bg: "#1b2430", ring: "#2c3a4d", dot: "#5b6b82" },
-  watch:    { label: "Watch",    fg: "#e8c34a", bg: "#2a2612", ring: "#5c4f1c", dot: "#e8c34a" },
-  warning:  { label: "Warning",  fg: "#f08a3c", bg: "#2e1f11", ring: "#6b3f18", dot: "#f08a3c" },
-  critical: { label: "Critical", fg: "#ff6a5a", bg: "#33161a", ring: "#7d2b2b", dot: "#ff5647" },
+  normal:   { label: "Normal",   fg: "#9FB2CE", bg: "#132038", ring: "#2A3E60", dot: "#6E85AC" },
+  watch:    { label: "Watch",    fg: "#D9AE45", bg: "#26200E", ring: "#5C4A1E", dot: "#D9AE45" },
+  warning:  { label: "Warning",  fg: "#E28F4E", bg: "#2A1C0F", ring: "#6B4420", dot: "#E28F4E" },
+  critical: { label: "Critical", fg: "#E8635A", bg: "#301418", ring: "#6E2B2A", dot: "#DB4A42" },
 };
 const RISK_ORDER = ["normal", "watch", "warning", "critical"];
 
 const TIER = {
-  tier_1_auto:   { label: "Tier 1 · Auto", tone: "#ff5647" },
-  tier_2_veto:   { label: "Tier 2 · Veto window", tone: "#f08a3c" },
-  tier_3_review: { label: "Tier 3 · Review", tone: "#e8c34a" },
+  tier_1_auto:   { label: "Tier 1 · Auto", tone: "#DB4A42" },
+  tier_2_veto:   { label: "Tier 2 · Veto window", tone: "#E28F4E" },
+  tier_3_review: { label: "Tier 3 · Review", tone: "#D9AE45" },
 };
 
 const STATUS_LABEL = {
@@ -71,23 +97,23 @@ const OPERATOR = OPERATOR_ID;
    One raised-card treatment and one inset-tile treatment so the layout reads
    in layers instead of one flat plane. Palette identity is unchanged. */
 const CARD = {
-  background: "#121a26",
-  border: "1px solid #24334a",
-  borderRadius: 12,
+  background: "#101E36",
+  border: "1px solid #223354",
+  borderRadius: 8,
   boxShadow: "0 1px 2px rgba(0,0,0,.35), 0 12px 28px -18px rgba(0,0,0,.65)",
 };
 const TILE = {
-  background: "#0e151f",
-  border: "1px solid #1f2c3d",
-  borderRadius: 10,
+  background: "#0B1729",
+  border: "1px solid #1A2A47",
+  borderRadius: 6,
 };
 // small uppercase section label — used to separate content groups
 const KICKER = {
-  fontSize: 10.5, fontWeight: 700, letterSpacing: 0.7, textTransform: "uppercase", color: "#6a7c92",
+  fontSize: 10.5, fontWeight: 700, letterSpacing: 0.7, textTransform: "uppercase", color: "#5E7396",
 };
 // primary metric number — deliberately much heavier than its label
 const STATNUM = {
-  fontSize: 25, fontWeight: 800, color: "#f4f8fc", lineHeight: 1.05, fontVariantNumeric: "tabular-nums",
+  fontSize: 25, fontWeight: 800, color: "#EDF2F9", lineHeight: 1.05, fontVariantNumeric: "tabular-nums",
 };
 
 /* ============================================================================
@@ -463,6 +489,41 @@ function useNewCritical(wards, onEscalate) {
 /* ============================================================================
    PRESENTATION
    ========================================================================== */
+
+/* Original abstract emblem — a contour/shield with a wave through it. No
+   external asset, no real government insignia; a small mark for the masthead
+   and the favicon (app/icon.svg carries the same motif). */
+function Seal({ size = 32 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="6" fill={COLOR.header} />
+      <path d="M16 5.5c-4.2 0-7.6 2.1-7.6 2.1v9.1c0 5.2 3.3 8.9 7.6 10.4 4.3-1.5 7.6-5.2 7.6-10.4V7.6S20.2 5.5 16 5.5Z"
+        fill="none" stroke={COLOR.saffron} strokeWidth="1.5" />
+      <path d="M7.5 17.2c2.4-2.6 3.8 2.6 6.2 0s3.8 2.6 6.2 0s3.8 2.6 6.2 0"
+        fill="none" stroke={COLOR.textPrimary} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function SpeakerIcon({ muted, size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M3 7.5h3.2L10 4.3v11.4l-3.8-3.2H3z" fill="currentColor" />
+      {muted ? (
+        <path d="M12.8 7.2l4 4M16.8 7.2l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      ) : (
+        <path d="M13 6.8a5 5 0 010 6.4M15.3 4.7a8.2 8.2 0 010 10.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      )}
+    </svg>
+  );
+}
+function ChevronLeftIcon({ size = 12 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M12 4.5 6.5 10l5.5 5.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function RiskDot({ level, size = 10 }) {
   const r = RISK[level] || RISK.normal;
   return <span style={{ width: size, height: size, borderRadius: 999, background: r.dot, display: "inline-block", boxShadow: `0 0 0 3px ${r.bg}` }} />;
@@ -556,13 +617,13 @@ function WardMap({ wards, selected, onSelect }) {
 
   const frame = {
     position: "relative", width: "100%", aspectRatio: `${MAP_W} / ${MAP_H}`,
-    minHeight: 360, borderRadius: 12, overflow: "hidden",
+    minHeight: 360, borderRadius: 8, overflow: "hidden",
     background: "radial-gradient(130% 130% at 25% 0%, #142031 0%, #0e1622 55%, #0a0f18 100%)",
-    border: "1px solid #223041", boxShadow: "inset 0 1px 0 #ffffff08, 0 12px 32px -20px #000",
+    border: "1px solid #223354", boxShadow: "inset 0 1px 0 #ffffff08, 0 12px 32px -20px #000",
   };
 
   if (!mounted) {
-    return <div style={{ ...frame, display: "grid", placeItems: "center", color: "#6d7d92", fontSize: 12 }}>Loading map…</div>;
+    return <div style={{ ...frame, display: "grid", placeItems: "center", color: "#7C93B3", fontSize: 12 }}>Loading map…</div>;
   }
 
   const labelFor = (w) => {
@@ -571,7 +632,7 @@ function WardMap({ wards, selected, onSelect }) {
     return (
       <text x={13} y={4} dominantBaseline="middle" style={{
         fontSize: 11.5, fontWeight: isSel ? 700 : 600,
-        fill: isSel ? "#f4f8fc" : "#c8d4e2", pointerEvents: "none",
+        fill: isSel ? "#EDF2F9" : "#c8d4e2", pointerEvents: "none",
         paintOrder: "stroke", stroke: "#0a0f18", strokeWidth: 4, strokeLinejoin: "round",
       }}>{w.name}</text>
     );
@@ -586,7 +647,7 @@ function WardMap({ wards, selected, onSelect }) {
             const uk = isUttarakhand(geo.properties);
             return (
               <Geography key={geo.rsmKey} geography={geo}
-                fill={uk ? "#1b2a3c" : "#0f1620"}
+                fill={uk ? "#1b2a3c" : "#0C1A30"}
                 stroke={uk ? "#465c76" : "#2a3949"}
                 strokeWidth={uk ? 1.1 : 0.5}
                 style={{ default: { outline: "none" }, hover: { outline: "none" }, pressed: { outline: "none" } }} />
@@ -632,17 +693,19 @@ function WardMap({ wards, selected, onSelect }) {
       </ComposableMap>
 
       {/* district ⇄ state toggle — district stays the default view */}
-      <button onClick={() => setView((v) => (v === "state" ? "district" : "state"))}
-        style={{ position: "absolute", right: 12, top: 12, fontSize: 11.5, fontWeight: 600, color: "#c3cfdd",
-          background: "#0d131bdd", border: "1px solid #2f3f52", borderRadius: 8, padding: "7px 11px", cursor: "pointer" }}>
-        {view === "state" ? "↩ Back to district" : "Zoom out to Uttarakhand"}
+      <button className="dr-chrome-btn" onClick={() => setView((v) => (v === "state" ? "district" : "state"))}
+        style={{ position: "absolute", right: 12, top: 12, display: "inline-flex", alignItems: "center", gap: 6,
+          fontSize: 11.5, fontWeight: 600, color: "#C7D4E5",
+          background: "#0B1729DD", border: "1px solid #2f3f52", borderRadius: 6, padding: "7px 11px", cursor: "pointer" }}>
+        {view === "state" && <ChevronLeftIcon />}
+        {view === "state" ? "Back to district" : "Zoom out to Uttarakhand"}
       </button>
 
       {/* legend */}
-      <div style={{ position: "absolute", left: 12, bottom: 12, display: "flex", gap: 14, background: "#0d131bdd",
-        border: "1px solid #223041", borderRadius: 9, padding: "8px 12px" }}>
+      <div style={{ position: "absolute", left: 12, bottom: 12, display: "flex", gap: 14, background: "#0B1729DD",
+        border: "1px solid #223354", borderRadius: 7, padding: "8px 12px" }}>
         {RISK_ORDER.map((k) => (
-          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9fb0c4" }}>
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#8CA0C2" }}>
             <RiskDot level={k} size={8} /> {RISK[k].label}
           </span>
         ))}
@@ -661,15 +724,15 @@ function VetoCard({ alert, onVeto }) {
   const urgent = left <= 10;
 
   return (
-    <div style={{ border: `1px solid ${urgent ? "#7d2b2b" : "#6b3f18"}`, background: urgent ? "#2a1214" : "#241a10",
-      borderRadius: 10, padding: 14, boxShadow: urgent ? "0 0 0 1px #ff564733" : "none" }}>
+    <div style={{ border: `1px solid ${urgent ? "#6E2B2A" : "#6B4420"}`, background: urgent ? "#2C1315" : "#2A1C0F",
+      borderRadius: 8, padding: 14, boxShadow: urgent ? "0 0 0 1px #DB4A4233" : "none" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#f4d9c0" }}>{alert.ward_name || alert.ward_id}</div>
           <div style={{ fontSize: 11.5, color: "#b79a86", marginTop: 2 }}>Auto-sends unless cancelled · {TIER[alert.tier].label}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: urgent ? "#ff6a5a" : "#f0a35c", fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: urgent ? "#E8635A" : "#D9822F", fontVariantNumeric: "tabular-nums" }}>
             {Math.ceil(left)}s
           </div>
           <div style={{ fontSize: 10, color: "#b79a86", marginTop: 2 }}>until broadcast</div>
@@ -678,7 +741,7 @@ function VetoCard({ alert, onVeto }) {
 
       {/* draining bar — the send is the default, so the bar depletes toward send */}
       <div style={{ height: 6, borderRadius: 999, background: "#3a2a1a", marginTop: 12, overflow: "hidden" }}>
-        <div style={{ width: `${pct * 100}%`, height: "100%", background: urgent ? "#ff5647" : "#f0a35c", transition: "width .5s linear" }} />
+        <div style={{ width: `${pct * 100}%`, height: "100%", background: urgent ? "#DB4A42" : "#D9822F", transition: "width .5s linear" }} />
       </div>
 
       <div style={{ fontSize: 12, color: "#d8c3b0", marginTop: 10, lineHeight: 1.5 }}>{alert.message}</div>
@@ -687,8 +750,8 @@ function VetoCard({ alert, onVeto }) {
         <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason to cancel (logged)"
           style={{ flex: 1, background: "#160f0a", border: "1px solid #4a3520", color: "#e8dccb", borderRadius: 7,
             padding: "8px 10px", fontSize: 12, outline: "none" }} />
-        <button disabled={busy} onClick={async () => { setBusy(true); await onVeto(alert.alert_id, reason || "operator cancelled"); setBusy(false); }}
-          style={{ background: "#1c2836", color: "#cdd9e6", border: "1px solid #33465b", borderRadius: 7,
+        <button className="dr-ok-btn" disabled={busy} onClick={async () => { setBusy(true); await onVeto(alert.alert_id, reason || "operator cancelled"); setBusy(false); }}
+          style={{ background: "#1A2A47", color: "#D6E0EE", border: "1px solid #33465b", borderRadius: 6,
             padding: "8px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
           Cancel broadcast
         </button>
@@ -701,9 +764,9 @@ function VetoCard({ alert, onVeto }) {
 function ReviewCard({ alert, onApprove, onDismiss }) {
   const [reason, setReason] = useState("");
   return (
-    <div style={{ border: "1px solid #5c4f1c", background: "#221f10", borderRadius: 10, padding: 14 }}>
+    <div style={{ border: "1px solid #5C4A1E", background: "#26200E", borderRadius: 8, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#ecdfa6" }}>{alert.ward_name || alert.ward_id}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#E7CE8E" }}>{alert.ward_name || alert.ward_id}</div>
         <span style={{ fontSize: 11, color: "#b8ab6a" }}>Confidence {Math.round(alert.confidence * 100)}% · held for review</span>
       </div>
       <div style={{ fontSize: 12, color: "#d7cfa6", marginTop: 8, lineHeight: 1.5 }}>{alert.message}</div>
@@ -711,12 +774,12 @@ function ReviewCard({ alert, onApprove, onDismiss }) {
         style={{ width: "100%", boxSizing: "border-box", background: "#171408", border: "1px solid #4a4220", color: "#e8e0c0",
           borderRadius: 7, padding: "8px 10px", fontSize: 12, outline: "none", marginTop: 10 }} />
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <button onClick={() => onApprove(alert.alert_id, reason || "confirmed by operator")}
-          style={{ flex: 1, background: "#33161a", color: "#ff8a7a", border: "1px solid #7d2b2b", borderRadius: 7, padding: "8px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+        <button className="dr-danger-btn" onClick={() => onApprove(alert.alert_id, reason || "confirmed by operator")}
+          style={{ flex: 1, background: "#301418", color: "#F0958D", border: "1px solid #6E2B2A", borderRadius: 6, padding: "8px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
           Approve &amp; broadcast
         </button>
-        <button onClick={() => onDismiss(alert.alert_id, reason || "not actionable")}
-          style={{ flex: 1, background: "#141a22", color: "#9fb0c4", border: "1px solid #2a3646", borderRadius: 7, padding: "8px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+        <button className="dr-chrome-btn" onClick={() => onDismiss(alert.alert_id, reason || "not actionable")}
+          style={{ flex: 1, background: "#141a22", color: "#8CA0C2", border: "1px solid #2A3F63", borderRadius: 6, padding: "8px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
           Dismiss
         </button>
       </div>
@@ -740,7 +803,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
     return () => { alive = false; };
   }, [wardId, api, riskHint]);
 
-  if (!risk) return <div style={{ color: "#6d7d92", fontSize: 13, padding: 20 }}>Loading ward telemetry…</div>;
+  if (!risk) return <div style={{ color: "#7C93B3", fontSize: 13, padding: 20 }}>Loading ward telemetry…</div>;
   const r = RISK[risk.risk_level];
   const wardSensors = sensors.filter((s) => s.ward_id === wardId);
 
@@ -748,8 +811,8 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
         <div>
-          <div style={{ fontSize: 19, fontWeight: 700, color: "#eef3f9", letterSpacing: 0.2 }}>{risk.name || wardId}</div>
-          <div style={{ fontSize: 12, color: "#68788d", marginTop: 4 }}>
+          <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: "#EDF2F9", letterSpacing: 0.2 }}>{risk.name || wardId}</div>
+          <div style={{ fontSize: 12, color: "#5E7396", marginTop: 4 }}>
             {wardId}{risk.glacier_fed ? " · glacier-fed" : ""} · evacuate to {risk.evacuation_point}
           </div>
         </div>
@@ -771,7 +834,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
       </div>
 
       {risk.stale_sensor_types?.length > 0 && (
-        <div style={{ fontSize: 12, color: "#f0a35c", background: "#241a10", border: "1px solid #5c4f1c", borderRadius: 8, padding: "8px 11px" }}>
+        <div style={{ fontSize: 12, color: "#D9822F", background: "#2A1C0F", border: "1px solid #5C4A1E", borderRadius: 8, padding: "8px 11px" }}>
           Sensor silence: {risk.stale_sensor_types.join(", ")} not reporting — treated as a signal, not ignored.
         </div>
       )}
@@ -782,16 +845,16 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
       {risk.model_branch && (
         <div style={{ ...TILE, padding: "12px 14px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
-            <span style={{ fontSize: 11.5, color: "#7d8ea3" }}>Satellite model (rainfall-triggered branch)</span>
+            <span style={{ fontSize: 11.5, color: "#7C93B3" }}>Satellite model (rainfall-triggered branch)</span>
             <span style={{ fontSize: 12, fontWeight: 700,
               color: risk.model_branch.available
-                ? (risk.model_branch.tier === "WARNING" ? "#f08a3c"
-                   : risk.model_branch.tier === "WATCH" ? "#e8c34a" : "#6fd39b")
-                : "#6d7d92" }}>
+                ? (risk.model_branch.tier === "WARNING" ? "#E28F4E"
+                   : risk.model_branch.tier === "WATCH" ? "#D9AE45" : "#3FA179")
+                : "#7C93B3" }}>
               {risk.model_branch.available ? risk.model_branch.tier : "not contributing"}
             </span>
           </div>
-          <div style={{ fontSize: 12, color: "#98a8bb", lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: "#7C93B3", lineHeight: 1.5 }}>
             {risk.model_branch.available
               ? <>
                   Score {risk.model_branch.raw_score}
@@ -803,7 +866,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
                 </>
               : risk.model_branch.reason}
           </div>
-          <div style={{ fontSize: 11, color: "#6d7d92", marginTop: 6, lineHeight: 1.45 }}>
+          <div style={{ fontSize: 11, color: "#7C93B3", marginTop: 6, lineHeight: 1.45 }}>
             This branch sees rainfall and terrain only. It cannot observe slope movement,
             water level or glacier collapse, so its silence is not an all-clear.
           </div>
@@ -814,7 +877,7 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
       <div>
         <div style={{ ...KICKER, marginBottom: 8 }}>Why this level</div>
         <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-          {risk.reasons.map((x, i) => <li key={i} style={{ fontSize: 12.5, color: "#c3cfdd", lineHeight: 1.45 }}>{x}</li>)}
+          {risk.reasons.map((x, i) => <li key={i} style={{ fontSize: 12.5, color: "#C7D4E5", lineHeight: 1.45 }}>{x}</li>)}
         </ul>
       </div>
 
@@ -824,14 +887,14 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
           {SENSOR_TYPES.map((tp) => {
             const sig = risk.signals.find((s) => s.name === tp);
-            const color = sig ? (RISK[sig.level] || RISK.normal).dot : "#5b6b82";
+            const color = sig ? (RISK[sig.level] || RISK.normal).dot : "#6E85AC";
             const data = series[tp] || [];
             const avail = sig ? sig.available : true;
             return (
               <div key={tp} style={{ ...TILE, padding: 12, opacity: avail ? 1 : 0.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span style={{ fontSize: 12, color: "#aebccd", textTransform: "capitalize" }}>{tp.replace("_", " ")}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: avail ? "#e8eef6" : "#6d7d92", fontVariantNumeric: "tabular-nums" }}>
+                  <span style={{ fontSize: 12, color: "#9FB2CE", textTransform: "capitalize" }}>{tp.replace("_", " ")}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: avail ? "#EDF2F9" : "#7C93B3", fontVariantNumeric: "tabular-nums" }}>
                     {avail && data.length ? `${data.at(-1).value}${SENSOR_UNIT[tp]}` : "—"}
                   </span>
                 </div>
@@ -839,16 +902,16 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
                   {avail && data.length ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={data} margin={{ top: 6, bottom: 2, left: 0, right: 0 }}>
-                        <Tooltip contentStyle={{ background: "#0d131b", border: "1px solid #2a3646", borderRadius: 6, fontSize: 11 }}
+                        <Tooltip contentStyle={{ background: "#0B1729", border: "1px solid #2A3F63", borderRadius: 6, fontSize: 11 }}
                           labelStyle={{ display: "none" }} formatter={(v) => [`${v}${SENSOR_UNIT[tp]}`, tp]} />
-                        {sig?.threshold != null && <ReferenceLine y={sig.threshold} stroke="#ff564755" strokeDasharray="3 3" />}
+                        {sig?.threshold != null && <ReferenceLine y={sig.threshold} stroke="#DB4A4255" strokeDasharray="3 3" />}
                         <Line type="monotone" dataKey="value" stroke={color} strokeWidth={1.8} dot={false} isAnimationActive={false} />
                         <YAxis hide domain={["dataMin", "dataMax"]} />
                         <XAxis dataKey="t" hide />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#6d7d92" }}>sensor silent</div>
+                    <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#7C93B3" }}>sensor silent</div>
                   )}
                 </div>
               </div>
@@ -863,8 +926,8 @@ function WardDetail({ wardId, api, sensors, riskHint }) {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {wardSensors.map((s) => (
             <span key={s.sensor_id} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6,
-              background: s.reporting ? "#12211a" : "#2a1214", color: s.reporting ? "#6fd39b" : "#ff8a7a",
-              border: `1px solid ${s.reporting ? "#1f4433" : "#7d2b2b"}` }}>
+              background: s.reporting ? "#10251B" : "#2C1315", color: s.reporting ? "#3FA179" : "#F0958D",
+              border: `1px solid ${s.reporting ? "#1B4F3A" : "#6E2B2A"}` }}>
               {s.type.replace("_", " ")} · {s.reporting ? fmtAgo(s.last_seen) : "silent"}
             </span>
           ))}
@@ -886,23 +949,23 @@ function SensorHealth({ sensors }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: "#aebccd" }}>
-          {sensors.length} sensors · <span style={{ color: silentCount ? "#ff8a7a" : "#6fd39b" }}>{silentCount} silent</span>
+        <div style={{ fontSize: 13, color: "#9FB2CE" }}>
+          {sensors.length} sensors · <span style={{ color: silentCount ? "#F0958D" : "#3FA179" }}>{silentCount} silent</span>
         </div>
-        <label style={{ fontSize: 12, color: "#9fb0c4", display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
+        <label style={{ fontSize: 12, color: "#8CA0C2", display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
           <input type="checkbox" checked={onlySilent} onChange={(e) => setOnlySilent(e.target.checked)} /> Silent first only
         </label>
       </div>
-      <div style={{ border: "1px solid #24334a", borderRadius: 11, overflow: "hidden", boxShadow: CARD.boxShadow }}>
+      <div style={{ border: "1px solid #223354", borderRadius: 8, overflow: "hidden", boxShadow: CARD.boxShadow }}>
         {rows.map((s, i) => (
           <div key={s.sensor_id} style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr 1fr auto", gap: 10, alignItems: "center",
-            padding: "10px 13px", background: i % 2 ? "#0f1620" : "#131c28", borderTop: i ? "1px solid #1c2836" : "none" }}>
-            <span style={{ fontSize: 12.5, color: "#cdd9e6", fontFamily: "ui-monospace, monospace" }}>{s.sensor_id}</span>
-            <span style={{ fontSize: 12.5, color: "#9fb0c4" }}>{s.ward_name || s.ward_id}</span>
-            <span style={{ fontSize: 12.5, color: "#9fb0c4", textTransform: "capitalize" }}>{s.type.replace("_", " ")}</span>
+            padding: "10px 13px", background: i % 2 ? "#0C1A30" : "#0F1D33", borderTop: i ? "1px solid #1A2A47" : "none" }}>
+            <span style={{ fontSize: 12.5, color: "#D6E0EE", fontFamily: "ui-monospace, monospace" }}>{s.sensor_id}</span>
+            <span style={{ fontSize: 12.5, color: "#8CA0C2" }}>{s.ward_name || s.ward_id}</span>
+            <span style={{ fontSize: 12.5, color: "#8CA0C2", textTransform: "capitalize" }}>{s.type.replace("_", " ")}</span>
             <span style={{ fontSize: 11.5, display: "inline-flex", alignItems: "center", gap: 6,
-              color: s.reporting ? "#6fd39b" : "#ff8a7a", justifySelf: "end" }}>
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: s.reporting ? "#6fd39b" : "#ff5647" }} />
+              color: s.reporting ? "#3FA179" : "#F0958D", justifySelf: "end" }}>
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: s.reporting ? "#3FA179" : "#DB4A42" }} />
               {s.reporting ? fmtAgo(s.last_seen) : "silent 40m+"}
             </span>
           </div>
@@ -915,21 +978,21 @@ function SensorHealth({ sensors }) {
 /* ---------- Alert log ------------------------------------------------------- */
 function AlertLog({ alerts }) {
   return (
-    <div style={{ border: "1px solid #24334a", borderRadius: 11, overflow: "hidden", boxShadow: CARD.boxShadow }}>
+    <div style={{ border: "1px solid #223354", borderRadius: 8, overflow: "hidden", boxShadow: CARD.boxShadow }}>
       <div style={{ display: "grid", gridTemplateColumns: "auto 1.3fr 1fr 1.2fr 1fr", gap: 10, padding: "9px 13px",
-        background: "#0e141d", fontSize: 11, color: "#6d7d92", fontWeight: 600 }}>
+        background: "#0B1729", fontSize: 11, color: "#7C93B3", fontWeight: 600 }}>
         <span>Risk</span><span>Ward</span><span>Tier</span><span>Status</span><span style={{ justifySelf: "end" }}>When</span>
       </div>
       {alerts.map((a, i) => (
         <div key={a.alert_id} style={{ display: "grid", gridTemplateColumns: "auto 1.3fr 1fr 1.2fr 1fr", gap: 10,
-          alignItems: "center", padding: "10px 13px", background: i % 2 ? "#0f1620" : "#131c28", borderTop: i ? "1px solid #1c2836" : "none" }}>
+          alignItems: "center", padding: "10px 13px", background: i % 2 ? "#0C1A30" : "#0F1D33", borderTop: i ? "1px solid #1A2A47" : "none" }}>
           <RiskDot level={a.risk_level} />
-          <span style={{ fontSize: 12.5, color: "#cdd9e6" }}>{a.ward_name || a.ward_id}</span>
-          <span style={{ fontSize: 11.5, color: TIER[a.tier]?.tone || "#9fb0c4" }}>{TIER[a.tier]?.label.split(" · ")[0] || a.tier}</span>
-          <span style={{ fontSize: 11.5, color: "#9fb0c4" }}>
+          <span style={{ fontSize: 12.5, color: "#D6E0EE" }}>{a.ward_name || a.ward_id}</span>
+          <span style={{ fontSize: 11.5, color: TIER[a.tier]?.tone || "#8CA0C2" }}>{TIER[a.tier]?.label.split(" · ")[0] || a.tier}</span>
+          <span style={{ fontSize: 11.5, color: "#8CA0C2" }}>
             {STATUS_LABEL[a.status] || a.status}{a.acted_by ? ` · ${a.acted_by.split(".").pop()}` : ""}
           </span>
-          <span style={{ fontSize: 11.5, color: "#7d8ea3", justifySelf: "end" }}>{fmtAgo(a.generated_at)}</span>
+          <span style={{ fontSize: 11.5, color: "#7C93B3", justifySelf: "end" }}>{fmtAgo(a.generated_at)}</span>
         </div>
       ))}
     </div>
@@ -969,59 +1032,69 @@ export default function App() {
   const detailRisk = wards.find((w) => w.ward_id === detailWard)?.risk;
 
   const TabBtn = ({ id, children, badge }) => (
-    <button onClick={() => setTab(id)} style={{
-      background: tab === id ? "#172230" : "transparent", color: tab === id ? "#e8eef6" : "#8496ab",
-      border: "1px solid " + (tab === id ? "#28374a" : "transparent"), borderRadius: 8, padding: "7px 13px",
+    <button onClick={() => setTab(id)} className={"dr-tab" + (tab === id ? " dr-tab-active" : "")} style={{
+      background: tab === id ? "#1B2E52" : "transparent", color: tab === id ? "#EDF2F9" : "#8CA0C2",
+      border: "1px solid " + (tab === id ? "#2A3F63" : "transparent"), borderRadius: 6, padding: "7px 13px",
       fontSize: 13, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7 }}>
       {children}
-      {badge > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, background: "#7d2b2b", color: "#ffd9d3", borderRadius: 999, padding: "1px 6px" }}>{badge}</span>}
+      {badge > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, background: "#6E2B2A", color: "#ffd9d3", borderRadius: 999, padding: "1px 6px" }}>{badge}</span>}
     </button>
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0e14", color: "#c3cfdd",
+    <div style={{ minHeight: "100vh", background: "#0A1220", color: "#C7D4E5",
       fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" }}>
       <style>{`
         @keyframes drpulse { 0% { transform: scale(.6); opacity:.4 } 100% { transform: scale(2.4); opacity:0 } }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 9px; height: 9px; } ::-webkit-scrollbar-thumb { background:#233040; border-radius: 9px; }
+        :focus-visible { outline: 2px solid ${COLOR.saffron}; outline-offset: 2px; }
+        /* Purposeful, restrained hover feedback — a border/tone lift, never a
+           uniform scale transform. Chrome buttons lift one step; tabs (not the
+           active one) get a faint tint; the map toggle and demo triggers get
+           their own treatment where they're defined. */
+        .dr-chrome-btn:hover:not(:disabled) { background: #17233C; border-color: #35507D; }
+        .dr-tab:not(.dr-tab-active):hover { background: #101E36; color: #C7D4E5; }
+        .dr-danger-btn:hover:not(:disabled) { background: #3A1A1C; }
+        .dr-ok-btn:hover:not(:disabled) { background: #172230; }
       `}</style>
+
+      {/* masthead accent — a thin formal rule, not a literal flag */}
+      <div style={{ height: 3, background: COLOR.saffron }} />
 
       {/* top bar */}
       <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "13px 20px", borderBottom: "1px solid #1c2635", background: "#0c1420",
+        padding: "13px 20px", borderBottom: "1px solid #1c2635", background: COLOR.header,
         boxShadow: "0 1px 0 #ffffff08, 0 10px 24px -16px #000", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg,#1f8f5f,#2f76bd)",
-            display: "grid", placeItems: "center", fontSize: 16, fontWeight: 800, color: "#fff",
-            boxShadow: "0 4px 12px -4px #2f76bd66" }}>दृ</div>
+          <Seal size={32} />
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#eef3f9", letterSpacing: 0.4 }}>DRISHTI</div>
-            <div style={{ fontSize: 10.5, color: "#68788d" }}>Flash-flood operations · Rudraprayag district</div>
+            <div style={{ fontFamily: SERIF, fontSize: 18, fontWeight: 700, color: "#EDF2F9", letterSpacing: 0.3 }}>DRISHTI</div>
+            <div style={{ fontSize: 10.5, color: "#5E7396", letterSpacing: 0.2 }}>Flash-Flood Early Warning · Rudraprayag District</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontSize: 11.5, color: connected ? "#6fd39b" : "#f0a35c", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 7, height: 7, borderRadius: 999, background: connected ? "#6fd39b" : "#f0a35c" }} />
+          <span style={{ fontSize: 11.5, color: connected ? "#3FA179" : "#D9822F", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 999, background: connected ? "#3FA179" : "#D9822F" }} />
             {connected ? "Live feed connected" : "Reconnecting…"}
           </span>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <button onClick={() => setMuted((m) => !m)} title={muted ? "Alert sound muted" : "Alert sound on"}
+            <button className="dr-chrome-btn" onClick={() => setMuted((m) => !m)} title={muted ? "Alert sound muted" : "Alert sound on"}
               aria-label={muted ? "Unmute alert sound" : "Mute alert sound"}
-              style={{ fontSize: 13, lineHeight: 1, color: "#9fb0c4", background: "#141c27",
-                border: "1px solid #26333f", borderRadius: 7, padding: "6px 9px", cursor: "pointer" }}>
-              {muted ? "🔇" : "🔊"}
+              style={{ display: "inline-flex", color: "#8CA0C2", background: "#132544",
+                border: "1px solid #2A3F63", borderRadius: 6, padding: "7px 9px", cursor: "pointer" }}>
+              <SpeakerIcon muted={muted} />
             </button>
             {/* sanity-check audio before a live demo — bypasses mute on purpose */}
-            <button onClick={() => playChime(acRef)} title="Play the alert chime now"
-              style={{ fontSize: 11, color: "#9fb0c4", background: "#141c27",
-                border: "1px solid #26333f", borderRadius: 7, padding: "6px 9px", cursor: "pointer" }}>
+            <button className="dr-chrome-btn" onClick={() => playChime(acRef)} title="Play the alert chime now"
+              style={{ fontSize: 11, color: "#8CA0C2", background: "#132544",
+                border: "1px solid #2A3F63", borderRadius: 6, padding: "6px 9px", cursor: "pointer" }}>
               Test sound
             </button>
           </div>
           {!USE_LIVE && (
-            <button onClick={() => api.simulate(wards.find((w) => w.risk === "watch")?.ward_id)}
-              style={{ fontSize: 11.5, color: "#9fb0c4", background: "#141c27", border: "1px solid #26333f", borderRadius: 7, padding: "6px 11px", cursor: "pointer" }}>
+            <button className="dr-chrome-btn" onClick={() => api.simulate(wards.find((w) => w.risk === "watch")?.ward_id)}
+              style={{ fontSize: 11.5, color: "#8CA0C2", background: "#132544", border: "1px solid #2A3F63", borderRadius: 6, padding: "6px 11px", cursor: "pointer" }}>
               Simulate Tier-2 event
             </button>
           )}
@@ -1029,12 +1102,12 @@ export default function App() {
       </header>
 
       {/* status strip */}
-      <div style={{ display: "flex", gap: 10, padding: "14px 20px", borderBottom: "1px solid #131b25", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, padding: "14px 20px", borderBottom: "1px solid #17233C", flexWrap: "wrap" }}>
         {RISK_ORDER.slice().reverse().map((k) => {
           const active = counts[k] && (k === "critical" || k === "warning");
           return (
             <div key={k} style={{ ...TILE, display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", minWidth: 132,
-              border: `1px solid ${active ? RISK[k].ring : "#1f2c3d"}`,
+              border: `1px solid ${active ? RISK[k].ring : "#1A2A47"}`,
               boxShadow: active ? `0 0 0 1px ${RISK[k].ring}55, 0 8px 22px -14px ${RISK[k].dot}55` : "none" }}>
               <RiskDot level={k} />
               <div>
@@ -1047,10 +1120,10 @@ export default function App() {
         <div style={{ flex: 1 }} />
         <div style={{ ...TILE, display: "flex", alignItems: "center", gap: 10, padding: "9px 14px",
           background: pending.length ? "#241a0e" : TILE.background,
-          border: `1px solid ${pending.length ? "#8a5320" : "#1f2c3d"}`,
-          boxShadow: pending.length ? "0 0 0 1px #f0a35c33, 0 8px 22px -14px #f0a35c55" : "none" }}>
+          border: `1px solid ${pending.length ? "#7A4A1E" : "#1A2A47"}`,
+          boxShadow: pending.length ? "0 0 0 1px #D9822F33, 0 8px 22px -14px #D9822F55" : "none" }}>
           <div>
-            <div style={{ ...STATNUM, fontSize: 21, color: pending.length ? "#f6b06a" : "#f4f8fc" }}>{pending.length}</div>
+            <div style={{ ...STATNUM, fontSize: 21, color: pending.length ? "#ECA85C" : "#EDF2F9" }}>{pending.length}</div>
             <div style={{ ...KICKER, marginTop: 3, color: pending.length ? "#c79a6e" : KICKER.color }}>veto windows open</div>
           </div>
         </div>
@@ -1070,12 +1143,12 @@ export default function App() {
               <div style={KICKER}>Situational overview — select a ward for detail</div>
               <WardMap wards={wards} selected={detailWard} onSelect={(id) => { setSelectedWard(id); }} />
               {pending.length > 0 && (
-                <div style={{ background: "#241608", border: "1px solid #8a5320", borderLeft: "3px solid #f0a35c",
-                  borderRadius: 12, padding: 16, boxShadow: "0 0 0 1px #f0a35c22, 0 14px 34px -16px #f0a35c40" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 999, background: "#f0a35c",
-                      boxShadow: "0 0 0 4px #f0a35c22", animation: "drpulse 1.8s ease-out infinite" }} />
-                    <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3, color: "#f6c690" }}>
+                <div style={{ background: "#241608", border: "1px solid #7A4A1E", borderLeft: "3px solid #D9822F",
+                  borderRadius: 8, padding: 16, boxShadow: "0 0 0 1px #D9822F22, 0 14px 34px -16px #D9822F40" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: "#D9822F",
+                      boxShadow: "0 0 0 4px #D9822F22", animation: "drpulse 1.8s ease-out infinite" }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: "#F0C27E" }}>
                       Live veto window{pending.length > 1 ? "s" : ""} — auto-sends unless cancelled
                     </span>
                   </div>
@@ -1088,7 +1161,7 @@ export default function App() {
             <div style={{ ...CARD, padding: 18,
               border: `1px solid ${detailRisk && RISK[detailRisk] ? RISK[detailRisk].ring : CARD.border.split(" ").pop()}`,
               boxShadow: detailRisk === "critical"
-                ? "0 0 0 1px #7d2b2b, 0 16px 40px -20px #ff564733"
+                ? "0 0 0 1px #6E2B2A, 0 16px 40px -20px #DB4A4233"
                 : CARD.boxShadow }}>
               {detailWard && <WardDetail wardId={detailWard} api={api} sensors={sensors} riskHint={detailRisk} />}
             </div>
@@ -1099,13 +1172,13 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.2fr)", gap: 18 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {pending.length === 0 && review.length === 0 && (
-                <div style={{ ...CARD, fontSize: 13, color: "#8496ab", padding: 18 }}>
+                <div style={{ ...CARD, fontSize: 13, color: "#8CA0C2", padding: 18 }}>
                   No alerts awaiting a decision. Tier-1 alerts dispatch automatically and appear in the log.
                 </div>
               )}
               {pending.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#f0a35c", marginBottom: 10 }}>Veto windows — auto-send unless cancelled</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#D9822F", marginBottom: 10 }}>Veto windows — auto-send unless cancelled</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {pending.map((a) => <VetoCard key={a.alert_id} alert={a} onVeto={api.veto} />)}
                   </div>
@@ -1113,7 +1186,7 @@ export default function App() {
               )}
               {review.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#e8c34a", marginBottom: 10 }}>Held for review — nothing sends without approval</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#D9AE45", marginBottom: 10 }}>Held for review — nothing sends without approval</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {review.map((a) => <ReviewCard key={a.alert_id} alert={a} onApprove={api.approve} onDismiss={api.dismiss} />)}
                   </div>
@@ -1134,7 +1207,7 @@ export default function App() {
         )}
       </main>
 
-      <footer style={{ padding: "14px 20px", borderTop: "1px solid #131b25", fontSize: 11, color: "#4f5d70",
+      <footer style={{ padding: "14px 20px", borderTop: "1px solid #17233C", fontSize: 11, color: "#4f5d70",
         display: "flex", justifyContent: "space-between" }}>
         <span>{USE_LIVE ? "Live · FastAPI backend" : "Demo mode · simulated telemetry"} · risk engine: rule-based (ML swap-in ready)</span>
         <span>Operator: {OPERATOR}</span>
